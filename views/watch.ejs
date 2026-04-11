@@ -1,0 +1,151 @@
+<%- include('partials/header') %>
+
+<div class="watch-header">
+  <a href="/" class="btn btn-sm">&larr; Back to Games</a>
+  <div class="watch-matchup">
+    <img src="<%= game.away.logo %>" alt="<%= game.away.abbrev %>" class="team-logo-sm" onerror="this.style.display='none'">
+    <span class="team-abbrev"><%= game.away.abbrev %></span>
+    <% if (game.away.score != null) { %>
+      <span class="watch-score"><%= game.away.score %></span>
+    <% } %>
+    <span class="watch-vs">@</span>
+    <% if (game.home.score != null) { %>
+      <span class="watch-score"><%= game.home.score %></span>
+    <% } %>
+    <span class="team-abbrev"><%= game.home.abbrev %></span>
+    <img src="<%= game.home.logo %>" alt="<%= game.home.abbrev %>" class="team-logo-sm" onerror="this.style.display='none'">
+  </div>
+  <div class="watch-game-info">
+    <span class="badge <%= stateClass(game.gameState) %>"><%= stateLabel(game.gameState) %><% if ((game.gameState === 'FINAL' || game.gameState === 'OFF') && game.periodType && game.periodType !== 'REG') { %> (<%= game.periodType %>)<% } %></span>
+    <% if (game.clock && (game.gameState === 'LIVE' || game.gameState === 'CRIT')) { %>
+      <span class="game-clock">P<%= game.period %> - <%= game.inIntermission ? 'INT' : game.clock %></span>
+    <% } %>
+  </div>
+</div>
+
+<% if (!selectedStream) { %>
+  <div class="no-stream">
+    <h2>No streams available</h2>
+    <p>Waiting for auto-discovery to find streams for this game.</p>
+  </div>
+<% } else { %>
+  <% if (streams.length > 1) { %>
+    <div class="stream-selector">
+      <% streams.forEach(function(s, i) { %>
+        <a href="/watch/<%= game.id %>?stream=<%= i %>&date=<%= date %>"
+           class="btn btn-sm <%= i === selectedIndex ? 'btn-active' : '' %>">
+          <%= s.label %><% if (s.lang && s.lang !== 'unknown') { %> (<%= s.lang %>)<% } %>
+        </a>
+      <% }); %>
+    </div>
+  <% } %>
+
+  <% if (castUrl) { %>
+    <div class="cast-controls" style="margin: 0.5rem 0; text-align: right;">
+      <button id="cast-btn" class="btn btn-sm" disabled title="Loading Cast..." style="opacity: 0.5;">
+        Cast
+      </button>
+    </div>
+  <% } %>
+
+  <div class="video-responsive">
+    <iframe
+      src="<%= embedUrl %>"
+      referrerpolicy="no-referrer"
+      allowfullscreen
+    ></iframe>
+  </div>
+<% } %>
+
+<% if (castUrl) { %>
+<script>
+  const CAST_URL = <%- JSON.stringify(castUrl) %>;
+
+  const castBtn = document.getElementById('cast-btn');
+
+  window['__onGCastApiAvailable'] = function(isAvailable) {
+    if (!isAvailable) {
+      if (castBtn) { castBtn.title = 'Cast not available'; }
+      return;
+    }
+    cast.framework.CastContext.getInstance().setOptions({
+      receiverApplicationId: 'CC1AD845',
+      autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED,
+    });
+    if (castBtn) {
+      castBtn.disabled = false;
+      castBtn.style.opacity = '';
+      castBtn.title = 'Cast to TV';
+    }
+  };
+
+  // If Cast SDK doesn't load within 10s, mark as unavailable
+  setTimeout(function() {
+    if (castBtn && castBtn.disabled) {
+      castBtn.title = 'Cast not available';
+    }
+  }, 10000);
+
+  castBtn.addEventListener('click', async function() {
+    const btn = this;
+    btn.disabled = true;
+    btn.textContent = 'Connecting...';
+
+    try {
+      const castContext = cast.framework.CastContext.getInstance();
+
+      if (!castContext.getCurrentSession()) {
+        const sessionErr = await castContext.requestSession();
+        if (sessionErr === chrome.cast.ErrorCode.CANCEL) {
+          btn.textContent = 'Cast';
+          btn.disabled = false;
+          return;
+        }
+        if (sessionErr || !castContext.getCurrentSession()) {
+          throw new Error('Cast session failed' + (sessionErr ? ': ' + sessionErr : ''));
+        }
+      }
+
+      btn.textContent = 'Loading...';
+
+      const response = await fetch(CAST_URL);
+      if (!response.ok) throw new Error('Failed to get stream URL');
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+
+      const mediaInfo = new chrome.cast.media.MediaInfo(
+        data.m3u8Url,
+        'application/vnd.apple.mpegurl'
+      );
+      mediaInfo.streamType = chrome.cast.media.StreamType.LIVE;
+
+      const request = new chrome.cast.media.LoadRequest(mediaInfo);
+      const loadErr = await castContext.getCurrentSession().loadMedia(request);
+      if (loadErr) throw new Error('Failed to load media: ' + loadErr);
+
+      btn.textContent = 'Casting';
+      btn.classList.add('btn-active');
+      btn.disabled = false;
+    } catch (err) {
+      console.error('Cast error:', err);
+      btn.textContent = 'Cast failed';
+      btn.title = err.message || 'Cast error';
+      setTimeout(() => {
+        btn.textContent = 'Cast';
+        btn.title = 'Cast to TV';
+      }, 3000);
+      btn.disabled = false;
+    }
+  });
+
+  // Load Cast SDK dynamically — static <script> tags (even with async) can still
+  // delay window.load in some browsers; dynamically inserted scripts never do.
+  (function() {
+    var s = document.createElement('script');
+    s.src = 'https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1';
+    document.head.appendChild(s);
+  })();
+</script>
+<% } %>
+
+<%- include('partials/footer') %>

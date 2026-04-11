@@ -1,0 +1,511 @@
+/* Reset & Base */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0f0f1a;
+  --bg-card: #1a1a2e;
+  --bg-hover: #222240;
+  --text: #e0e0e0;
+  --text-muted: #888;
+  --accent: #4fc3f7;
+  --accent-hover: #29b6f6;
+  --live: #f44336;
+  --final: #888;
+  --upcoming: #4fc3f7;
+  --danger: #e53935;
+  --success: #43a047;
+  --border: #2a2a4a;
+  --radius: 8px;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* Navbar */
+.navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+}
+
+.nav-brand {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.nav-links { display: flex; gap: 1.5rem; }
+.nav-links a {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.95rem;
+  transition: color 0.2s;
+}
+.nav-links a:hover { color: var(--text); }
+
+/* Container */
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+/* Page Header */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.page-header h1 { font-size: 1.5rem; }
+
+.date-nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.current-date {
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  min-width: 200px;
+  text-align: center;
+}
+
+/* Buttons */
+.btn {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  background: var(--bg-hover);
+  color: var(--text);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+.btn:hover { background: var(--border); border-color: var(--accent); }
+
+.btn-sm { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
+
+.btn-watch {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.btn-watch:hover { background: var(--accent-hover); }
+
+.btn-active {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+}
+
+.btn-dim {
+  opacity: 0.45;
+}
+
+/* Games Grid */
+.games-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.25rem;
+}
+
+.no-games {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 3rem;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+}
+
+/* Game Card */
+.game-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  transition: border-color 0.2s;
+}
+.game-card:hover { border-color: var(--accent); }
+
+.game-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.badge-live {
+  background: var(--live);
+  color: #fff;
+  animation: pulse 2s infinite;
+}
+.badge-final { background: var(--final); color: #fff; }
+.badge-upcoming { background: transparent; color: var(--upcoming); border: 1px solid var(--upcoming); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.game-clock {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.period-type {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Matchup */
+.matchup {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.team {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.team-logo {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+}
+
+.team-name {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.score {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.vs {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  padding: 0 1rem;
+}
+
+.start-time {
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.game-venue {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+}
+
+.game-actions {
+  text-align: center;
+}
+
+/* Watch Page */
+.watch-header {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.watch-matchup {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 1.1rem;
+}
+
+.team-logo-sm { width: 36px; height: 36px; object-fit: contain; }
+.team-abbrev { font-weight: 700; }
+.watch-score { font-size: 1.5rem; font-weight: 800; color: var(--accent); }
+.watch-vs { color: var(--text-muted); }
+
+.watch-game-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.stream-selector {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.video-responsive {
+  position: relative;
+  padding-bottom: 56.25%;
+  height: 0;
+  background: #000;
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.video-responsive iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.no-stream {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: var(--text-muted);
+}
+.no-stream h2 { color: var(--text); margin-bottom: 0.5rem; }
+.no-stream p { margin-bottom: 1.5rem; }
+
+/* Admin */
+.admin-section {
+  margin-bottom: 2.5rem;
+}
+
+.admin-section h2 {
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.muted { color: var(--text-muted); }
+
+/* Discovery Status */
+.discovery-status {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+}
+
+.status-row {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.3rem 0;
+  font-size: 0.9rem;
+}
+
+.status-label {
+  color: var(--text-muted);
+  min-width: 120px;
+}
+
+.error-text { color: var(--danger); }
+
+.auto-streams-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 0.75rem;
+}
+
+.auto-streams-grid .stream-entry {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+}
+
+.auto-streams-grid .stream-entry h3 {
+  font-size: 0.95rem;
+  margin-bottom: 0;
+  flex: 1;
+  color: var(--accent);
+}
+
+/* Error Page */
+.error-page {
+  text-align: center;
+  padding: 4rem 2rem;
+}
+.error-page h1 { margin-bottom: 1rem; }
+.error-page p { margin-bottom: 1.5rem; color: var(--text-muted); }
+
+/* Wild Schedule */
+.season-label {
+  font-size: 0.9rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.show-past-btn {
+  margin-bottom: 1rem;
+}
+
+.schedule-month-header {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent);
+  padding: 0.75rem 0 0.25rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.25rem;
+  letter-spacing: 0.05em;
+}
+
+.schedule-row {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-card);
+  border-radius: 6px;
+  margin-bottom: 0.25rem;
+  border-left: 3px solid var(--final);
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+.schedule-row:hover { background: var(--bg-hover); }
+
+.schedule-row.border-live { border-left-color: var(--live); }
+.schedule-row.border-upcoming { border-left-color: var(--accent); }
+.schedule-row.border-muted { border-left-color: var(--final); }
+
+.sched-date {
+  width: 55px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.sched-status {
+  width: 110px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.sched-badge {
+  font-size: 0.6rem;
+  padding: 0.1rem 0.35rem;
+}
+
+.sched-clock {
+  font-size: 0.75rem;
+  color: var(--live);
+}
+
+.sched-time {
+  font-size: 0.8rem;
+  color: var(--accent);
+}
+
+.result-win { color: var(--success); font-weight: 600; }
+.result-loss { color: var(--danger); font-weight: 600; }
+
+.sched-matchup {
+  flex: 1;
+  font-weight: 600;
+}
+
+.sched-score {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.sched-sep {
+  color: var(--text-muted);
+  margin: 0 0.25rem;
+}
+
+.sched-extra {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.ot-tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.sched-watch {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+}
+
+.today-divider {
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent);
+  padding: 0.75rem 0;
+  letter-spacing: 0.1em;
+  position: relative;
+}
+.today-divider::before,
+.today-divider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 40%;
+  height: 1px;
+  background: var(--border);
+}
+.today-divider::before { left: 0; }
+.today-divider::after { right: 0; }
+
+/* Responsive */
+@media (max-width: 640px) {
+  .navbar { padding: 0.75rem 1rem; }
+  .container { padding: 1rem; }
+  .page-header { flex-direction: column; align-items: flex-start; }
+  .games-grid { grid-template-columns: 1fr; }
+  .team-logo { width: 40px; height: 40px; }
+  .score { font-size: 1.4rem; }
+  .schedule-row { font-size: 0.8rem; padding: 0.4rem 0.5rem; gap: 0.5rem; }
+  .sched-date { width: 45px; }
+  .sched-status { width: 85px; }
+}

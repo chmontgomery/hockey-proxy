@@ -1,0 +1,68 @@
+<%
+  const isWildHome = game.home.abbrev === 'MIN';
+  const isLive = game.gameState === 'LIVE' || game.gameState === 'CRIT';
+  const isFinal = game.gameState === 'FINAL' || game.gameState === 'OFF';
+  const isFuture = !isLive && !isFinal;
+
+  let borderClass = 'border-muted';
+  if (isLive) borderClass = 'border-live';
+  else if (isFuture) borderClass = 'border-upcoming';
+
+  let resultText = '';
+  let resultClass = '';
+  if (isFinal && game.away.score != null && game.home.score != null) {
+    const wildScore = isWildHome ? game.home.score : game.away.score;
+    const oppScore = isWildHome ? game.away.score : game.home.score;
+    if (wildScore > oppScore) {
+      resultText = 'W ' + wildScore + '-' + oppScore;
+      resultClass = 'result-win';
+    } else {
+      resultText = 'L ' + wildScore + '-' + oppScore;
+      resultClass = 'result-loss';
+    }
+  }
+
+  const d = new Date(game.gameDate + 'T12:00:00');
+  const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  const otTag = isFinal && game.periodType && game.periodType !== 'REG' ? game.periodType : null;
+%>
+<div class="schedule-row <%= borderClass %>" data-game-id="<%= game.id %>">
+  <span class="sched-date"><%= dateStr %></span>
+
+  <span class="sched-status">
+    <% if (isLive) { %>
+      <span class="badge badge-live sched-badge">LIVE</span>
+      <% if (game.clock) { %>
+        <span class="sched-clock">P<%= game.period %> <%= game.inIntermission ? 'INT' : game.clock %></span>
+      <% } %>
+    <% } else if (isFinal) { %>
+      <span class="<%= resultClass %>"><%= resultText %></span>
+    <% } else { %>
+      <span class="sched-time"><%= formatTime(game.startTime) %></span>
+    <% } %>
+  </span>
+
+  <span class="sched-matchup">
+    <% if (isFinal || isLive) { %>
+      <%= game.away.abbrev %> <span class="sched-score" data-side="away"><%= game.away.score != null ? game.away.score : '' %></span>
+      <span class="sched-sep">&mdash;</span>
+      <span class="sched-score" data-side="home"><%= game.home.score != null ? game.home.score : '' %></span> <%= game.home.abbrev %>
+    <% } else { %>
+      <% if (isWildHome) { %>
+        <%= game.away.abbrev %> @ MIN
+      <% } else { %>
+        MIN @ <%= game.home.abbrev %>
+      <% } %>
+    <% } %>
+  </span>
+
+  <span class="sched-extra">
+    <% if (otTag) { %>
+      <span class="ot-tag"><%= otTag %></span>
+    <% } %>
+    <% if (game.hasStreams) { %>
+      <a href="/watch/<%= game.id %>" class="btn btn-sm btn-watch sched-watch">Watch</a>
+    <% } %>
+  </span>
+</div>

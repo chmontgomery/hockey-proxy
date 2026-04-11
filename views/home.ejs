@@ -1,0 +1,67 @@
+<%- include('partials/header') %>
+
+<div class="page-header">
+  <h1>NHL Games</h1>
+  <div class="date-nav">
+    <a href="/?date=<%= prevDate %>" class="btn btn-sm">&larr; Prev</a>
+    <span class="current-date"><%= formattedDate %></span>
+    <a href="/?date=<%= nextDate %>" class="btn btn-sm">Next &rarr;</a>
+  </div>
+</div>
+
+<div id="games-container" class="games-grid" data-date="<%= date %>">
+  <% if (games.length === 0) { %>
+    <div class="no-games">No games scheduled for this date.</div>
+  <% } %>
+  <% games.forEach(function(game) { %>
+    <div class="game-card" data-game-id="<%= game.id %>">
+      <div class="game-status">
+        <span class="badge <%= stateClass(game.gameState) %>"><%= stateLabel(game.gameState) %></span>
+        <% if (game.clock && (game.gameState === 'LIVE' || game.gameState === 'CRIT')) { %>
+          <span class="game-clock">P<%= game.period %> - <%= game.inIntermission ? 'INT' : game.clock %></span>
+        <% } %>
+        <% if (game.periodType && (game.gameState === 'FINAL' || game.gameState === 'OFF')) { %>
+          <% if (game.periodType !== 'REG') { %>
+            <span class="period-type">(<%= game.periodType %>)</span>
+          <% } %>
+        <% } %>
+      </div>
+
+      <div class="matchup">
+        <div class="team away">
+          <img src="<%= game.away.logo %>" alt="<%= game.away.abbrev %>" class="team-logo" onerror="this.style.display='none'">
+          <span class="team-name"><%= game.away.abbrev %></span>
+          <% if (game.away.score != null) { %>
+            <span class="score"><%= game.away.score %></span>
+          <% } %>
+        </div>
+        <div class="vs">
+          <% if (game.gameState === 'FUT') { %>
+            <span class="start-time"><%= formatTime(game.startTime) %></span>
+          <% } else { %>
+            <span>vs</span>
+          <% } %>
+        </div>
+        <div class="team home">
+          <img src="<%= game.home.logo %>" alt="<%= game.home.abbrev %>" class="team-logo" onerror="this.style.display='none'">
+          <span class="team-name"><%= game.home.abbrev %></span>
+          <% if (game.home.score != null) { %>
+            <span class="score"><%= game.home.score %></span>
+          <% } %>
+        </div>
+      </div>
+
+      <div class="game-venue"><%= game.venue %></div>
+
+      <div class="game-actions">
+        <% if (game.hasStreams) { %>
+          <a href="/watch/<%= game.id %>?date=<%= date %>" class="btn btn-watch">Watch (<%= game.streamCount %>)</a>
+        <% } %>
+      </div>
+    </div>
+  <% }); %>
+</div>
+
+<script src="/js/gameState.js"></script>
+<script src="/js/refresh.js"></script>
+<%- include('partials/footer') %>

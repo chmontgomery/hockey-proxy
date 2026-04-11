@@ -1,0 +1,39 @@
+<%- include('partials/header') %>
+
+<div class="page-header">
+  <h1>Wild Schedule <span class="season-label"><%= seasonLabel %></span></h1>
+</div>
+
+<div id="wild-schedule" data-today="<%= today %>">
+  <% if (pastByMonth.length > 0) { %>
+    <button id="show-past-btn" class="btn btn-sm show-past-btn">Show Previous Games (<%= pastByMonth.reduce((n, m) => n + m.games.length, 0) %>)</button>
+
+    <div id="past-games" class="schedule-list" style="display: none;">
+      <% pastByMonth.forEach(function(month) { %>
+        <div class="schedule-month-header"><%= month.label %></div>
+        <% month.games.forEach(function(game) { %>
+          <%- include('partials/wild-game-row', { game, today, formatTime }) %>
+        <% }); %>
+      <% }); %>
+    </div>
+  <% } %>
+
+  <div class="today-divider" id="today-marker">TODAY</div>
+
+  <div id="upcoming-games" class="schedule-list">
+    <% if (upcomingByMonth.length === 0) { %>
+      <div class="no-games" style="padding: 2rem; text-align: center;">Season complete.</div>
+    <% } else { %>
+      <% upcomingByMonth.forEach(function(month) { %>
+        <div class="schedule-month-header"><%= month.label %></div>
+        <% month.games.forEach(function(game) { %>
+          <%- include('partials/wild-game-row', { game, today, formatTime }) %>
+        <% }); %>
+      <% }); %>
+    <% } %>
+  </div>
+</div>
+
+<script src="/js/gameState.js"></script>
+<script src="/js/wild-refresh.js"></script>
+<%- include('partials/footer') %>

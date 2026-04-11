@@ -1,0 +1,62 @@
+<%- include('partials/header') %>
+
+<div class="page-header">
+  <h1>Stream Management</h1>
+</div>
+
+<section class="admin-section">
+  <h2>Auto-Discovery Status</h2>
+  <div class="discovery-status">
+    <div class="status-row">
+      <span class="status-label">Scrapers:</span>
+      <span><%= discoveryStatus.scrapers.join(', ') %></span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Refresh interval:</span>
+      <span><%= Math.round(discoveryStatus.interval / 1000) %>s</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Last run:</span>
+      <span><%= discoveryStatus.lastRun ? new Date(discoveryStatus.lastRun).toLocaleTimeString() : 'Not yet' %></span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Last result:</span>
+      <span>
+        <%= discoveryStatus.lastResults.total %> streams found for
+        <%= discoveryStatus.lastResults.matched %> games
+        <% if (discoveryStatus.lastResults.errors.length > 0) { %>
+          <span class="error-text">(<%= discoveryStatus.lastResults.errors.length %> errors)</span>
+        <% } %>
+      </span>
+    </div>
+    <% if (discoveryStatus.lastResults.errors.length > 0) { %>
+      <div class="status-row">
+        <span class="status-label">Errors:</span>
+        <span class="error-text"><%= discoveryStatus.lastResults.errors.join('; ') %></span>
+      </div>
+    <% } %>
+  </div>
+</section>
+
+<section class="admin-section">
+  <h2>Auto-Discovered Streams</h2>
+  <% const autoEntries = Object.entries(autoSummary); %>
+  <% if (autoEntries.length === 0) { %>
+    <p class="muted">No streams auto-discovered yet. Waiting for next scrape cycle...</p>
+  <% } else { %>
+    <div class="auto-streams-grid">
+      <% games.forEach(function(game) { %>
+        <% const count = autoSummary[game.id] || 0; %>
+        <% if (count > 0) { %>
+          <div class="stream-entry">
+            <h3><%= game.away.abbrev %> @ <%= game.home.abbrev %></h3>
+            <span class="badge badge-upcoming"><%= count %> stream<%= count !== 1 ? 's' : '' %></span>
+            <a href="/watch/<%= game.id %>?date=<%= date %>" class="btn btn-sm btn-watch" style="margin-left: 0.5rem">Watch</a>
+          </div>
+        <% } %>
+      <% }); %>
+    </div>
+  <% } %>
+</section>
+
+<%- include('partials/footer') %>
