@@ -86,21 +86,25 @@ app.listen(PORT, () => {
       try {
         const ngrok = await import('ngrok');
         const url = await ngrok.connect(PORT);
-        console.log(`\n🌐 Public URL (share this): ${url}`);
+        console.log(`\nPublic URL (share this): ${url}`);
         console.log('Ctrl+C to stop\n');
 
         // Clean up ngrok on process exit
-        process.on('SIGINT', async () => {
+        process.once('SIGINT', async () => {
           console.log('\nShutting down...');
-          await ngrok.kill();
+          try {
+            await ngrok.kill();
+          } catch (err) {
+            console.warn('ngrok kill failed:', err.message);
+          }
           process.exit(0);
         });
       } catch (error) {
         if (error.message.includes('ERR_NGROK_108')) {
-          console.error('\n❌ ngrok not authenticated. Run:\n  ngrok config add-authtoken <token>\n');
+          console.error('\nngrok not authenticated. Run: ngrok config add-authtoken <token>\n');
           console.error('Get a free token at https://dashboard.ngrok.com/auth\n');
         } else {
-          console.error('\n❌ Failed to start ngrok tunnel:', error.message);
+          console.error('\nFailed to start ngrok tunnel:', error.message);
         }
         process.exit(1);
       }
