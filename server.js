@@ -83,31 +83,60 @@ app.listen(PORT, () => {
   // If --tunnel flag is present, expose via ngrok
   if (process.argv.includes('--tunnel')) {
     (async () => {
-      try {
-        const ngrok = await import('ngrok');
-        const url = await ngrok.connect(PORT);
-        console.log(`\nPublic URL (share this): ${url}`);
-        console.log('Ctrl+C to stop\n');
+      const { spawn } = require('child_process');
+    try {
+      const ngrok = spawn('/opt/homebrew/bin/ngrok', ['http', PORT], { stdio: ['ignore', 'inherit', 'pipe'] });
+      let urlLogged = false;
 
-        // Clean up ngrok on process exit
-        process.once('SIGINT', async () => {
-          console.log('\nShutting down...');
-          try {
-            await ngrok.kill();
-          } catch (err) {
-            console.warn('ngrok kill failed:', err.message);
+      ngrok.stderr.on('data', (data) => {
+        const error = data.toString();
+        // Try to extract ngrok URL from output
+        if (!urlLogged && error.includes('https://')) {
+          const match = error.match(/(https?:\/\/[a-z0-9\-]+\.ngrok(?:-free)?\.app)/i);
+          if (match) {
+            console.log(`\nPublic URL (share this): ${match[1]}`);
+            console.log('Ctrl+C to stop\n');
+            urlLogged = true;
           }
-          process.exit(0);
-        });
-      } catch (error) {
-        if (error.message.includes('ERR_NGROK_108')) {
-          console.error('\nngrok not authenticated. Run: ngrok config add-authtoken <token>\n');
-          console.error('Get a free token at https://dashboard.ngrok.com/auth\n');
-        } else {
-          console.error('\nFailed to start ngrok tunnel:', error.message);
         }
+        // Only log actual errors
+        if (error.includes('ERROR') || error.includes('ERR_NGROK')) {
+          console.error('ngrok error:', error);
+        }
+      });
+
+      ngrok.on('error', (err) => {
+        console.error('Failed to start ngrok:', err.message);
         process.exit(1);
-      }
+      });
+
+      // Query ngrok API after a short delay to get the URL
+      setTimeout(async () => {
+        if (!urlLogged) {
+          try {
+            const response = await fetch('http://localhost:4040/api/tunnels');
+            const data = await response.json();
+            if (data.tunnels && data.tunnels.length > 0) {
+              const url = data.tunnels[0].public_url;
+              console.log(`\nPublic URL (share this): ${url}`);
+              console.log('Ctrl+C to stop\n');
+              urlLogged = true;
+            }
+          } catch (e) {
+            // Silently fail, ngrok will output the URL itself
+          }
+        }
+      }, 2000);
+
+      process.once('SIGINT', () => {
+        console.log('\nShutting down...');
+        ngrok.kill();
+        process.exit(0);
+      });
+    } catch (error) {
+      console.error('Failed to start ngrok tunnel:', error.message);
+      process.exit(1);
+    }
     })();
   }
 });
