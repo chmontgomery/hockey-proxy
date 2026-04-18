@@ -79,6 +79,33 @@ streamDiscovery.start();
 app.listen(PORT, () => {
   console.log(`Hockey Proxy running at http://localhost:${PORT}`);
   console.log(`LAN (HTTP):  http://${app.locals.lanIp}:${PORT}`);
+
+  // If --tunnel flag is present, expose via ngrok
+  if (process.argv.includes('--tunnel')) {
+    (async () => {
+      try {
+        const ngrok = await import('ngrok');
+        const url = await ngrok.connect(PORT);
+        console.log(`\n🌐 Public URL (share this): ${url}`);
+        console.log('Ctrl+C to stop\n');
+
+        // Clean up ngrok on process exit
+        process.on('SIGINT', async () => {
+          console.log('\nShutting down...');
+          await ngrok.kill();
+          process.exit(0);
+        });
+      } catch (error) {
+        if (error.message.includes('ERR_NGROK_108')) {
+          console.error('\n❌ ngrok not authenticated. Run:\n  ngrok config add-authtoken <token>\n');
+          console.error('Get a free token at https://dashboard.ngrok.com/auth\n');
+        } else {
+          console.error('\n❌ Failed to start ngrok tunnel:', error.message);
+        }
+        process.exit(1);
+      }
+    })();
+  }
 });
 
 // HTTPS server (required for Google Cast SDK in the browser)
