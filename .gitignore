@@ -3,3 +3,4 @@ data/streams.json
 .claude/
 .certs/
 .superpowers/
+.worktrees/
