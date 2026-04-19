@@ -23,8 +23,8 @@ const TEAM_ALIASES = {
   WSH: ['washington', 'capitals', 'caps'],
 
   // Western Conference — Central
-  ARI: ['arizona', 'coyotes', 'utah', 'utah hockey club', 'utah hc'],
-  UTA: ['utah', 'utah hockey club', 'utah hc'],
+  ARI: ['arizona', 'coyotes'],
+  UTA: ['utah', 'utah hockey club', 'utah hc', 'utah mammoth', 'mammoth'],
   CHI: ['chicago', 'blackhawks', 'hawks'],
   COL: ['colorado', 'avalanche', 'avs'],
   DAL: ['dallas', 'stars'],
@@ -64,16 +64,10 @@ function resolveTeam(name) {
   // Direct hit
   if (aliasToAbbrev.has(lower)) return aliasToAbbrev.get(lower);
 
-  // Try matching against each alias as a substring
+  // Try matching against each alias as a substring (aliasToAbbrev already
+  // contains both the 3-letter abbreviations and their full-name aliases).
   for (const [alias, abbrev] of aliasToAbbrev) {
     if (alias.length >= 4 && lower.includes(alias)) return abbrev;
-  }
-
-  // Try the other direction — does any alias appear in the input?
-  for (const [abbrev, aliases] of Object.entries(TEAM_ALIASES)) {
-    for (const alias of aliases) {
-      if (alias.length >= 4 && lower.includes(alias)) return abbrev;
-    }
   }
 
   return null;

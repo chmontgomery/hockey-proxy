@@ -13,8 +13,20 @@ const wildRoutes = require('./routes/wild');
 const gameFetcher = require('./services/gameFetcher');
 const streamDiscovery = require('./services/streamDiscovery');
 
+const USE_TUNNEL = process.argv.includes('--tunnel');
+
+// Require auth on public tunnels — otherwise the proxy is open to the internet.
+if (USE_TUNNEL && !process.env.PROXY_TOKEN) {
+  console.error('Refusing to start --tunnel without PROXY_TOKEN set.');
+  console.error('Generate one: openssl rand -hex 24');
+  console.error('Then: PROXY_TOKEN=<value> npm start -- --tunnel');
+  process.exit(1);
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
+// HTTPS listens on PORT+443 (e.g. 3000→3443) so both servers bind without
+// requiring elevated privileges for the standard 443 port.
 const HTTPS_PORT = process.env.HTTPS_PORT || (Number(PORT) + 443);
 
 function getLanIp() {
@@ -33,17 +45,10 @@ app.locals.lanIp = process.env.LAN_IP || getLanIp();
 app.locals.port = PORT;
 app.locals.httpsPort = HTTPS_PORT;
 
-app.locals.stateClass = function (state) {
-  if (state === 'LIVE' || state === 'CRIT') return 'badge-live';
-  if (state === 'FINAL' || state === 'OFF') return 'badge-final';
-  return 'badge-upcoming';
-};
-app.locals.stateLabel = function (state) {
-  if (state === 'LIVE') return 'LIVE';
-  if (state === 'CRIT') return 'LIVE - CRIT';
-  if (state === 'FINAL' || state === 'OFF') return 'FINAL';
-  return 'Upcoming';
-};
+const STATE_CLASSES = { LIVE: 'badge-live', CRIT: 'badge-live', FINAL: 'badge-final', OFF: 'badge-final' };
+const STATE_LABELS = { LIVE: 'LIVE', CRIT: 'LIVE - CRIT', FINAL: 'FINAL', OFF: 'FINAL' };
+app.locals.stateClass = (state) => STATE_CLASSES[state] || 'badge-upcoming';
+app.locals.stateLabel = (state) => STATE_LABELS[state] || 'Upcoming';
 
 // View engine
 app.set('view engine', 'ejs');
@@ -80,10 +85,16 @@ app.listen(PORT, () => {
   console.log(`Hockey Proxy running at http://localhost:${PORT}`);
   console.log(`LAN (HTTP):  http://${app.locals.lanIp}:${PORT}`);
 
-  // If --tunnel flag is present, expose via ngrok
-  if (process.argv.includes('--tunnel')) {
+  if (USE_TUNNEL) {
     (async () => {
-      const ngrok = require('@ngrok/ngrok');
+      let ngrok;
+      try {
+        ngrok = require('@ngrok/ngrok');
+      } catch {
+        console.error('--tunnel requires the optional @ngrok/ngrok dependency.');
+        console.error('Install it: npm install @ngrok/ngrok');
+        process.exit(1);
+      }
       try {
         const listener = await ngrok.forward({ addr: PORT, authtoken_from_env: true });
         console.log(`\nPublic URL (share this): ${listener.url()}`);

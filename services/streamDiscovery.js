@@ -3,7 +3,7 @@ const gameFetcher = require('./gameFetcher');
 const streamResolver = require('./streamResolver');
 const teamMatcher = require('./teamMatcher');
 const streamExtractor = require('./streamExtractor');
-const { BROWSER_UA } = require('./constants');
+const { BROWSER_UA, CASTLINK_DOMAINS } = require('./constants');
 const onhockeyScraper = require('./scrapers/onhockey');
 
 const REFRESH_INTERVAL = 90 * 1000; // 90 seconds
@@ -12,15 +12,13 @@ let running = false;
 let lastRun = null;
 let lastResults = { total: 0, matched: 0, errors: [] };
 
-// All registered scrapers
 const scrapers = [
   { name: 'onhockey', scraper: onhockeyScraper },
 ];
 
 /**
  * Deduplicate streams that resolve to the same underlying source.
- * E.g. castlink mirrors (vuen.link, gopst.link, dabac.link, zenoz.link) with
- * the same channel ID all produce the same m3u8 — keep only the first one.
+ * Castlink mirrors with the same channel ID all produce the same m3u8.
  */
 function deduplicateStreams(streams) {
   const seen = new Set();
@@ -32,18 +30,14 @@ function deduplicateStreams(streams) {
   });
 }
 
-const CASTLINK_DOMAINS = ['vuen.link', 'gopst.link', 'dabac.link', 'zenoz.link'];
-
 function getStreamDedupeKey(url) {
   try {
     const parsed = new URL(url);
-    // Castlink mirrors: group by channel ID
     if (CASTLINK_DOMAINS.some(d => parsed.hostname === d)) {
       const id = parsed.searchParams.get('id') || '';
       return `castlink:${id}`;
     }
   } catch {}
-  // Default: each URL is unique
   return url;
 }
 
@@ -65,11 +59,12 @@ async function discover() {
     const games = await gameFetcher.fetchGames();
     if (!games || games.length === 0) {
       console.log('[discovery] No games today, skipping');
-      running = false;
       return lastResults;
     }
 
-    // Run all scrapers concurrently
+    // Run all scrapers concurrently. Each scraper wraps its own work in a
+    // try/catch so allSettled resolves "fulfilled" for all entries; the
+    // rejected branch here is defensive for programmer errors only.
     const scraperResults = await Promise.allSettled(
       scrapers.map(async ({ name, scraper }) => {
         try {
@@ -83,48 +78,31 @@ async function discover() {
       })
     );
 
-    // Collect all scraped games from all scrapers
     const allScrapedGames = [];
     for (const result of scraperResults) {
-      if (result.status === 'fulfilled' && result.value.results) {
-        for (const game of result.value.results) {
-          allScrapedGames.push({ ...game, scraperName: result.value.name });
-        }
+      if (result.status !== 'fulfilled' || !result.value?.results) continue;
+      for (const game of result.value.results) {
+        allScrapedGames.push({ ...game, scraperName: result.value.name });
       }
     }
 
-    // Match scraped games to NHL API games
-    const matchedStreams = new Map(); // gameId → streams[]
+    const matchedStreams = new Map();
 
     for (const scraped of allScrapedGames) {
       const match = teamMatcher.matchGame(scraped.away, scraped.home, games);
-      if (!match) {
-        continue;
-      }
+      if (!match) continue;
 
-      if (!matchedStreams.has(match.id)) {
-        matchedStreams.set(match.id, []);
-      }
-
+      if (!matchedStreams.has(match.id)) matchedStreams.set(match.id, []);
       for (const stream of scraped.streams) {
         matchedStreams.get(match.id).push(stream);
       }
     }
 
-    // Save discovered streams — deduplicate, filter to extractable only, sort by rank.
     for (const [gameId, streams] of matchedStreams) {
-      // Deduplicate: castlink domains (vuen/gopst/dabac/zenoz) with the same
-      // channel ID all resolve to the same underlying stream. Keep only one per
-      // channel to avoid hammering the upstream with redundant extraction requests.
       const deduped = deduplicateStreams(streams);
-
-      // Drop non-extractable (iframe) streams entirely — they can't be proxied
-      // and there's no point fetching or validating them.
       const extractable = deduped.filter(s => streamExtractor.isExtractable(s.url));
 
-      // Validate castlink streams — their CDN sometimes returns 404 for dead channels.
-      // Extract + test-fetch the m3u8 to verify the channel is alive, then clear the
-      // extraction cache so the proxy gets a fresh token at play time.
+      // Validate castlink streams — their CDN returns 404 for dead channels.
       const validated = [];
       for (const s of extractable) {
         if (CASTLINK_DOMAINS.some(d => s.url.includes(d))) {
@@ -134,15 +112,15 @@ async function discover() {
               console.log(`[discovery] Excluded castlink stream (extraction failed): ${s.url}`);
               continue;
             }
-            // Test-fetch the m3u8 to verify the CDN serves it
             const { data } = await axios.get(result.m3u8Url, {
               timeout: 5000,
               headers: { 'User-Agent': BROWSER_UA, 'Referer': result.headers?.Referer || '' },
               responseType: 'text',
+              maxContentLength: streamExtractor.MAX_MANIFEST_BYTES,
+              maxBodyLength: streamExtractor.MAX_MANIFEST_BYTES,
             });
             if (data && data.includes('#EXTM3U')) {
               validated.push(s);
-              // Clear cached extraction so proxy gets a fresh token at play time
               streamExtractor.clearCache(s.url);
             } else {
               console.log(`[discovery] Excluded castlink stream (invalid manifest): ${s.url}`);
@@ -158,9 +136,9 @@ async function discover() {
         }
       }
 
-      const healthy = validated.sort((a, b) => {
-        return streamExtractor.streamRank(a.url) - streamExtractor.streamRank(b.url);
-      });
+      const healthy = validated.sort((a, b) =>
+        streamExtractor.streamRank(a.url) - streamExtractor.streamRank(b.url)
+      );
 
       streamResolver.setAutoStreams(gameId, healthy);
       if (healthy.length > 0) matchedGames++;
@@ -168,11 +146,8 @@ async function discover() {
     }
 
     // Clear auto streams for games that no longer have scraped links
-    const currentAutoGames = streamResolver.getAutoGameIds();
-    for (const gameId of currentAutoGames) {
-      if (!matchedStreams.has(gameId)) {
-        streamResolver.setAutoStreams(gameId, []);
-      }
+    for (const gameId of streamResolver.getAutoGameIds()) {
+      if (!matchedStreams.has(gameId)) streamResolver.setAutoStreams(gameId, []);
     }
 
     lastRun = new Date();
@@ -190,15 +165,12 @@ async function discover() {
 }
 
 /**
- * Start the background discovery loop.
+ * Start the background discovery loop. Idempotent — multiple calls are a no-op.
  */
 function start() {
+  if (intervalHandle) return;
   console.log('[discovery] Starting stream discovery (every 90s)');
-
-  // Run immediately on start
   discover();
-
-  // Then on interval
   intervalHandle = setInterval(discover, REFRESH_INTERVAL);
 }
 

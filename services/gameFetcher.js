@@ -121,7 +121,7 @@ async function fetchScores() {
     return games;
   } catch (err) {
     console.error('Score fetch failed:', err.message);
-    return null;
+    return [];
   }
 }
 
@@ -134,14 +134,8 @@ async function fetchScores() {
 async function fetchGamesWithLiveData(date) {
   const games = await fetchGames(date);
 
-  let scores;
-  try {
-    scores = await fetchScores();
-  } catch {
-    scores = null;
-  }
-
-  if (!scores || scores.length === 0) return games;
+  const scores = await fetchScores();
+  if (scores.length === 0) return games;
 
   const scoreMap = new Map();
   for (const s of scores) {
@@ -166,17 +160,19 @@ async function fetchGamesWithLiveData(date) {
 }
 
 /**
- * Background auto-refresh of today's schedule.
+ * Background auto-refresh of today's schedule only. Other dates are fetched
+ * on demand (and cached per-date). The interval is idempotent — multiple
+ * calls don't stack intervals.
  */
 let refreshInterval = null;
 function startAutoRefresh() {
-  // Fetch immediately on start
-  fetchGames().then(games => {
+  if (refreshInterval) return;
+
+  fetchGames(todayLocal()).then(games => {
     console.log(`Loaded ${games.length} games for today`);
   });
 
-  // Refresh every 5 minutes
-  refreshInterval = setInterval(() => fetchGames(), 5 * 60 * 1000);
+  refreshInterval = setInterval(() => fetchGames(todayLocal()), 5 * 60 * 1000);
 }
 
 module.exports = { fetchGames, fetchGamesWithLiveData, fetchScores, startAutoRefresh };

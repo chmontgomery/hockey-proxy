@@ -4,3 +4,4 @@ data/streams.json
 .certs/
 .superpowers/
 .worktrees/
+.env

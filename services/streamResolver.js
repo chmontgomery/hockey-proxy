@@ -33,9 +33,10 @@ async function getStreams(gameId) {
     }
   }
 
-  if (streams.length > 0) {
-    cache.set(cacheKey, streams);
-  }
+  // Cache even empty results (with shorter TTL) to avoid a lookup storm while
+  // scrapers haven't found streams yet for a game.
+  const ttl = streams.length > 0 ? 120 : 30;
+  cache.set(cacheKey, streams, ttl);
 
   return streams;
 }

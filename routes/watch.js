@@ -2,11 +2,11 @@ const express = require('express');
 const router = express.Router();
 const gameFetcher = require('../services/gameFetcher');
 const streamResolver = require('../services/streamResolver');
-const { todayLocal } = require('../services/dateUtils');
+const { todayLocal, isValidDateStr } = require('../services/dateUtils');
 
 router.get('/:id', async (req, res) => {
   const gameId = req.params.id;
-  const date = req.query.date || todayLocal();
+  const date = isValidDateStr(req.query.date) ? req.query.date : todayLocal();
 
   const games = await gameFetcher.fetchGamesWithLiveData(date);
   const game = games.find(g => String(g.id) === String(gameId));

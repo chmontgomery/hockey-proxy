@@ -1,6 +1,7 @@
 const axios = require('axios');
 const NodeCache = require('node-cache');
 const gameFetcher = require('./gameFetcher');
+const { parseLocalDate } = require('./dateUtils');
 
 const NHL_API = 'https://api-web.nhle.com/v1';
 const cache = new NodeCache({ stdTTL: 300 }); // 5 min TTL
@@ -10,7 +11,7 @@ const cache = new NodeCache({ stdTTL: 300 }); // 5 min TTL
  * Seasons start in September: Sep 2025 → 20252026, Mar 2026 → 20252026.
  */
 function getSeasonId(date) {
-  const d = date ? new Date(date + 'T12:00:00') : new Date();
+  const d = date ? parseLocalDate(date) : new Date();
   const year = d.getFullYear();
   const month = d.getMonth(); // 0-indexed
   if (month >= 8) { // September or later
@@ -56,16 +57,21 @@ async function fetchSchedule() {
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
-  const { data } = await axios.get(`${NHL_API}/club-schedule-season/MIN/${seasonId}`, {
-    timeout: 10000,
-  });
+  try {
+    const { data } = await axios.get(`${NHL_API}/club-schedule-season/MIN/${seasonId}`, {
+      timeout: 10000,
+    });
 
-  const games = (data.games || [])
-    .filter(g => g.gameType >= 2) // regular season + playoffs only
-    .map(normalizeGame);
+    const games = (data.games || [])
+      .filter(g => g.gameType >= 2)
+      .map(normalizeGame);
 
-  cache.set(cacheKey, games);
-  return games;
+    cache.set(cacheKey, games);
+    return games;
+  } catch (err) {
+    console.error('[wildSchedule] Fetch failed:', err.message);
+    return [];
+  }
 }
 
 /**
@@ -74,14 +80,8 @@ async function fetchSchedule() {
 async function fetchScheduleWithLiveData() {
   const games = await fetchSchedule();
 
-  let scores;
-  try {
-    scores = await gameFetcher.fetchScores();
-  } catch {
-    scores = null;
-  }
-
-  if (!scores || scores.length === 0) return games;
+  const scores = await gameFetcher.fetchScores();
+  if (scores.length === 0) return games;
 
   const scoreMap = new Map();
   for (const s of scores) {

@@ -5,29 +5,44 @@ const axios = require('axios');
 const { URL } = require('url');
 const streamExtractor = require('../services/streamExtractor');
 const { BROWSER_UA } = require('../services/constants');
+const { isAllowedProxyUrl, assertAllowedProxyUrl } = require('../services/urlGuard');
 
-// Cast session store — sessionId → { sourceUrl, base, createdAt }
+// Read at module load — env changes after startup shouldn't affect per-request auth.
+const PROXY_TOKEN = process.env.PROXY_TOKEN || null;
+
+// Upper bounds on proxied response bodies (mitigates resource exhaustion).
+const MAX_MANIFEST_BYTES = 5 * 1024 * 1024;   // 5 MB for m3u8 text
+const MAX_SEGMENT_BYTES = 100 * 1024 * 1024;  // 100 MB per segment (generous)
+
+// Cast session store — sessionId → { sourceUrl, base, createdAt, lastUsed }
 // Gives Chromecast a stable URL while the server transparently refreshes expiring stream tokens.
 const castSessions = new Map();
-setInterval(() => {
-  const cutoff = Date.now() - 6 * 60 * 60 * 1000;
-  for (const [id, session] of castSessions) {
-    if (session.createdAt < cutoff) castSessions.delete(id);
-  }
-}, 30 * 60 * 1000);
+const CAST_SESSION_TTL_MS = 60 * 60 * 1000;   // 1 hour of inactivity
+const CAST_SESSION_MAX = 500;                  // hard cap on concurrent sessions
+const CAST_SUBPATH_RE = /^[\w./-]+$/;          // safe HLS sub-path charset
 
-/**
- * Validate that a URL is safe to proxy — blocks private/internal IPs, non-HTTP protocols, etc.
- */
-function isAllowedProxyUrl(urlStr) {
-  try {
-    const parsed = new URL(urlStr);
-    if (!['http:', 'https:'].includes(parsed.protocol)) return false;
-    const host = parsed.hostname;
-    if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return false;
-    if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.)/.test(host)) return false;
-    return true;
-  } catch { return false; }
+setInterval(() => {
+  const cutoff = Date.now() - CAST_SESSION_TTL_MS;
+  for (const [id, session] of castSessions) {
+    if ((session.lastUsed || session.createdAt) < cutoff) castSessions.delete(id);
+  }
+}, 10 * 60 * 1000);
+
+function createCastSession(sourceUrl, base) {
+  // Evict the oldest entry when at capacity (simple LRU by lastUsed).
+  if (castSessions.size >= CAST_SESSION_MAX) {
+    let oldestId = null;
+    let oldestTs = Infinity;
+    for (const [id, s] of castSessions) {
+      const ts = s.lastUsed || s.createdAt;
+      if (ts < oldestTs) { oldestTs = ts; oldestId = id; }
+    }
+    if (oldestId) castSessions.delete(oldestId);
+  }
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  castSessions.set(id, { sourceUrl, base, createdAt: now, lastUsed: now });
+  return id;
 }
 
 /**
@@ -49,10 +64,9 @@ async function axiosGetWithRetry(url, options, maxRetries = 1) {
   }
 }
 
-// Optional token auth — if PROXY_TOKEN is set, all /proxy routes require ?token=
+// Optional token auth — if PROXY_TOKEN is set at startup, all /proxy routes require ?token=
 router.use((req, res, next) => {
-  const token = process.env.PROXY_TOKEN;
-  if (token && req.query.token !== token) {
+  if (PROXY_TOKEN && req.query.token !== PROXY_TOKEN) {
     return res.status(401).send('Unauthorized');
   }
   next();
@@ -70,6 +84,7 @@ router.get('/hls', async (req, res) => {
   if (!isAllowedProxyUrl(targetUrl)) return res.status(403).send('URL not allowed');
 
   try {
+    await assertAllowedProxyUrl(targetUrl);
     const headers = { 'User-Agent': BROWSER_UA };
     if (referer) headers['Referer'] = referer;
 
@@ -77,18 +92,20 @@ router.get('/hls', async (req, res) => {
       timeout: 10000,
       headers,
       responseType: 'text',
+      maxContentLength: MAX_MANIFEST_BYTES,
+      maxBodyLength: MAX_MANIFEST_BYTES,
     });
 
     let manifest = response.data;
     const baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
 
-    // Rewrite URLs in the manifest to route through our proxy
     manifest = rewriteManifest(manifest, baseUrl, referer, proxyBase);
 
     res.set('Content-Type', 'application/vnd.apple.mpegurl');
     res.set('Access-Control-Allow-Origin', '*');
     res.send(manifest);
   } catch (err) {
+    if (err.code === 'URL_NOT_ALLOWED') return res.status(403).send('URL not allowed');
     console.error('[proxy/hls] Failed:', err.message);
     res.status(502).send('Failed to fetch HLS manifest');
   }
@@ -105,6 +122,7 @@ router.get('/segment', async (req, res) => {
   if (!isAllowedProxyUrl(targetUrl)) return res.status(403).send('URL not allowed');
 
   try {
+    await assertAllowedProxyUrl(targetUrl);
     const headers = { 'User-Agent': BROWSER_UA };
     if (referer) headers['Referer'] = referer;
 
@@ -112,15 +130,17 @@ router.get('/segment', async (req, res) => {
       timeout: 15000,
       headers,
       responseType: 'stream',
+      maxContentLength: MAX_SEGMENT_BYTES,
+      maxBodyLength: MAX_SEGMENT_BYTES,
     });
 
-    // Forward content type
     const contentType = response.headers['content-type'];
     if (contentType) res.set('Content-Type', contentType);
     res.set('Access-Control-Allow-Origin', '*');
 
     response.data.pipe(res);
   } catch (err) {
+    if (err.code === 'URL_NOT_ALLOWED') return res.status(403).send('URL not allowed');
     console.error('[proxy/segment] Failed:', err.message, '| url:', targetUrl);
     res.status(502).send('Segment fetch failed');
   }
@@ -160,7 +180,6 @@ router.get('/play', async (req, res) => {
 
 /**
  * Refresh endpoint — forces re-extraction (clears cache) and returns a fresh proxied HLS URL.
- * Called by the HLS player when manifest loads fail due to stale tokens.
  * GET /proxy/refresh?url=<source-page-url>
  */
 router.get('/refresh', async (req, res) => {
@@ -168,7 +187,6 @@ router.get('/refresh', async (req, res) => {
   if (!sourceUrl) return res.status(400).json({ error: 'Missing url parameter' });
 
   try {
-    // Force fresh extraction by clearing the cache entry
     streamExtractor.clearCache(sourceUrl);
 
     const result = await streamExtractor.extract(sourceUrl);
@@ -188,8 +206,6 @@ router.get('/refresh', async (req, res) => {
 
 /**
  * Cast endpoint — creates a cast session and returns a stable LAN URL for Chromecast.
- * The session URL transparently re-extracts stream tokens when they expire (~4 min),
- * so the Chromecast never sees an expiring token URL directly.
  * GET /proxy/play-cast?url=<source-page-url>&base=<http://lan-ip:port>
  */
 router.get('/play-cast', async (req, res) => {
@@ -203,9 +219,7 @@ router.get('/play-cast', async (req, res) => {
       return res.status(404).json({ error: 'Could not extract stream from this source' });
     }
 
-    const sessionId = crypto.randomUUID();
-    castSessions.set(sessionId, { sourceUrl, base, createdAt: Date.now() });
-
+    const sessionId = createCastSession(sourceUrl, base);
     res.set('Access-Control-Allow-Origin', '*');
     res.json({ m3u8Url: `${base}/proxy/cast-stream/${sessionId}/stream.m3u8` });
   } catch (err) {
@@ -216,20 +230,24 @@ router.get('/play-cast', async (req, res) => {
 
 /**
  * Cast stream handler — serves HLS manifests to Chromecast with transparent token refresh.
- * On each manifest request, re-extracts the stream (using cache when still valid, or fresh
- * extraction when the 4-min token cache expires). Segment URLs are served through /proxy/segment.
- * Sub-playlist URLs route back through this endpoint so they also benefit from token refresh.
- * GET /proxy/cast-stream/:sessionId/stream.m3u8   — root/master playlist
- * GET /proxy/cast-stream/:sessionId/<sub/path.m3u8> — quality-level playlists
- * GET /proxy/cast-stream/:sessionId/<segment.ts>  — TS segments (proxied directly)
+ * GET /proxy/cast-stream/:sessionId                  — root/master playlist
+ * GET /proxy/cast-stream/:sessionId/<sub/path.m3u8>  — quality-level playlists
+ * GET /proxy/cast-stream/:sessionId/<segment.ts>     — TS segments
  */
 async function handleCastStream(req, res) {
   const { sessionId } = req.params;
   const rawSubPath = req.params.subPath;
   const subPath = Array.isArray(rawSubPath) ? rawSubPath.join('/') : (rawSubPath || 'stream.m3u8');
 
+  // Validate sub-path charset — blocks attempts to escape the cast session
+  // or inject query strings that route fetches to attacker-controlled hosts.
+  if (!CAST_SUBPATH_RE.test(subPath) || subPath.includes('..')) {
+    return res.status(400).send('Invalid sub-path');
+  }
+
   const session = castSessions.get(sessionId);
   if (!session) return res.status(404).send('Cast session not found or expired');
+  session.lastUsed = Date.now();
 
   const { sourceUrl, base } = session;
 
@@ -244,14 +262,28 @@ async function handleCastStream(req, res) {
 
   const m3u8Url = result.m3u8Url;
   const streamBase = m3u8Url.substring(0, m3u8Url.lastIndexOf('/') + 1);
-  // Preserve query params (e.g. auth tokens) from the freshly-extracted root URL
-  // so sub-playlist fetches also use the current token.
-  const freshQuery = (() => { try { return new URL(m3u8Url).search; } catch { return ''; } })();
-  const targetUrl = subPath === 'stream.m3u8' ? m3u8Url : streamBase + subPath + freshQuery;
   const referer = result.headers?.Referer || '';
   const fetchAsText = subPath === 'stream.m3u8' || subPath.endsWith('.m3u8');
 
+  let targetUrl;
+  if (subPath === 'stream.m3u8') {
+    targetUrl = m3u8Url;
+  } else {
+    // Preserve query params (e.g. auth tokens) from the freshly-extracted root
+    // on sub-playlists only — TS segments have their own path-scoped auth.
+    const freshQuery = fetchAsText
+      ? (() => { try { return new URL(m3u8Url).search; } catch { return ''; } })()
+      : '';
+    targetUrl = streamBase + subPath + freshQuery;
+  }
+
+  // Defense in depth — the resolved URL must remain under streamBase.
+  if (!targetUrl.startsWith(streamBase)) {
+    return res.status(400).send('Invalid sub-path');
+  }
+
   try {
+    await assertAllowedProxyUrl(targetUrl);
     const headers = { 'User-Agent': BROWSER_UA };
     if (referer) {
       headers['Referer'] = referer;
@@ -262,10 +294,14 @@ async function handleCastStream(req, res) {
       timeout: 10000,
       headers,
       responseType: fetchAsText ? 'text' : 'stream',
+      maxContentLength: fetchAsText ? MAX_MANIFEST_BYTES : MAX_SEGMENT_BYTES,
+      maxBodyLength: fetchAsText ? MAX_MANIFEST_BYTES : MAX_SEGMENT_BYTES,
     });
 
     if (fetchAsText) {
-      const manifest = rewriteCastManifest(response.data, streamBase, sessionId, base, referer);
+      const manifest = rewriteManifest(response.data, streamBase, referer, base, {
+        castSessionId: sessionId,
+      });
       res.set('Content-Type', 'application/vnd.apple.mpegurl');
       res.set('Access-Control-Allow-Origin', '*');
       res.send(manifest);
@@ -276,6 +312,7 @@ async function handleCastStream(req, res) {
       response.data.pipe(res);
     }
   } catch (err) {
+    if (err.code === 'URL_NOT_ALLOWED') return res.status(403).send('URL not allowed');
     console.error(`[proxy/cast-stream] Fetch failed for ${targetUrl}:`, err.message);
     res.status(502).send('Failed to fetch stream content');
   }
@@ -286,8 +323,6 @@ router.get('/cast-stream/:sessionId/*subPath', handleCastStream);
 
 /**
  * Build a /proxy/hls URL that routes an m3u8 through our manifest proxy.
- * When proxyBase is set, the URL is fully qualified and the proxyBase is
- * propagated so nested playlists also resolve correctly.
  */
 function buildHlsProxyUrl(m3u8Url, referer, proxyBase = '') {
   let url = `${proxyBase}/proxy/hls?url=${encodeURIComponent(m3u8Url)}&referer=${encodeURIComponent(referer)}`;
@@ -296,35 +331,35 @@ function buildHlsProxyUrl(m3u8Url, referer, proxyBase = '') {
 }
 
 /**
- * Rewrite URLs in an HLS manifest to route through our segment proxy.
- * When proxyBase is set (e.g. "http://192.168.1.x:3000"), all URLs are fully qualified.
+ * Rewrite URLs in an HLS manifest to route through our proxy.
+ * When `opts.castSessionId` is set, sub-playlists route through /proxy/cast-stream
+ * for transparent token refresh; otherwise they go through /proxy/hls.
  */
-function rewriteManifest(manifest, baseUrl, referer, proxyBase = '') {
+function rewriteManifest(manifest, baseUrl, referer, proxyBase = '', opts = {}) {
+  const { castSessionId } = opts;
   const lines = manifest.split('\n');
   const rewritten = lines.map(line => {
     const trimmed = line.trim();
 
-    // Skip comments/tags (except URI= inside tags)
     if (trimmed.startsWith('#')) {
-      // Rewrite URI="..." in tags like #EXT-X-KEY or #EXT-X-MAP
       return trimmed.replace(/URI="([^"]+)"/g, (match, uri) => {
         const absolute = resolveUrl(uri, baseUrl);
         return `URI="${proxyUrl(absolute, referer, proxyBase)}"`;
       });
     }
 
-    // Skip empty lines
     if (!trimmed) return line;
 
-    // This is a segment or playlist URL — rewrite it
     const absolute = resolveUrl(trimmed, baseUrl);
 
-    // If this is a sub-playlist (.m3u8), proxy through /proxy/hls and propagate proxyBase
     if (absolute.includes('.m3u8')) {
+      if (castSessionId) {
+        const sub = getStreamSubPath(absolute, baseUrl);
+        if (sub) return `${proxyBase}/proxy/cast-stream/${castSessionId}/${sub}`;
+      }
       return buildHlsProxyUrl(absolute, referer, proxyBase);
     }
 
-    // Otherwise it's a segment — proxy through /proxy/segment
     return proxyUrl(absolute, referer, proxyBase);
   });
 
@@ -346,36 +381,7 @@ function proxyUrl(absoluteUrl, referer, proxyBase = '') {
 }
 
 /**
- * Rewrite HLS manifest URLs for Chromecast cast sessions.
- * Sub-playlists (.m3u8) → /proxy/cast-stream/:sessionId/<sub-path> (so token refresh applies)
- * Segments/resources → /proxy/segment?url=...&referer=... (fetched immediately, token still valid)
- */
-function rewriteCastManifest(manifest, streamBase, sessionId, base, referer) {
-  const lines = manifest.split('\n');
-  const rewritten = lines.map(line => {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('#')) {
-      return trimmed.replace(/URI="([^"]+)"/g, (match, uri) => {
-        const absolute = resolveUrl(uri, streamBase);
-        return `URI="${proxyUrl(absolute, referer, base)}"`;
-      });
-    }
-    if (!trimmed) return line;
-
-    const absolute = resolveUrl(trimmed, streamBase);
-    if (absolute.includes('.m3u8')) {
-      const sub = getStreamSubPath(absolute, streamBase);
-      if (sub) return `${base}/proxy/cast-stream/${sessionId}/${sub}`;
-      return buildHlsProxyUrl(absolute, referer, base);
-    }
-    return proxyUrl(absolute, referer, base);
-  });
-  return rewritten.join('\n');
-}
-
-/**
- * Extract the path-only sub-path of a URL relative to streamBase (no query params —
- * callers re-attach the fresh token from the re-extracted root URL).
+ * Extract the path-only sub-path of a URL relative to streamBase (no query).
  */
 function getStreamSubPath(absoluteUrl, streamBase) {
   try {

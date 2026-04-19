@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const gameFetcher = require('../services/gameFetcher');
-const streamResolver = require('../services/streamResolver');
+const { decorateWithStreamInfo } = require('../services/streamInfo');
 const streamDiscovery = require('../services/streamDiscovery');
-const { todayLocal } = require('../services/dateUtils');
+const { todayLocal, isValidDateStr } = require('../services/dateUtils');
 const wildSchedule = require('../services/wildSchedule');
 
 /**
@@ -11,16 +11,9 @@ const wildSchedule = require('../services/wildSchedule');
  * GET /api/games?date=YYYY-MM-DD
  */
 router.get('/games', async (req, res) => {
-  const date = req.query.date || todayLocal();
+  const date = isValidDateStr(req.query.date) ? req.query.date : todayLocal();
   const games = await gameFetcher.fetchGamesWithLiveData(date);
-
-  const gamesWithStreamInfo = await Promise.all(
-    games.map(async (game) => {
-      const streams = await streamResolver.getStreams(game.id);
-      return { ...game, hasStreams: streams.length > 0, streamCount: streams.length };
-    })
-  );
-
+  const gamesWithStreamInfo = await decorateWithStreamInfo(games);
   res.json({ date, games: gamesWithStreamInfo });
 });
 
@@ -49,7 +42,6 @@ router.get('/wild', async (req, res) => {
   const games = await wildSchedule.fetchScheduleWithLiveData();
   const today = todayLocal();
 
-  // Return only today's games (the ones that might be live)
   const todayGames = games
     .filter(g => g.gameDate === today)
     .map(g => ({
