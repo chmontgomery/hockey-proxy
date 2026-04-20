@@ -1,8 +1,8 @@
-const axios = require('axios');
 const NodeCache = require('node-cache');
 
 const { BROWSER_UA, CASTLINK_DOMAINS } = require('./constants');
 const { assertAllowedProxyUrl } = require('./urlGuard');
+const { safeAxios } = require('./safeHttp');
 
 const cache = new NodeCache({ stdTTL: 240 });
 const healthCache = new NodeCache({ stdTTL: 120 });
@@ -14,7 +14,7 @@ const MAX_MANIFEST_BYTES = 5 * 1024 * 1024;
 
 async function safeGet(url, options = {}) {
   await assertAllowedProxyUrl(url);
-  return axios.get(url, {
+  return safeAxios.get(url, {
     maxContentLength: MAX_HTML_BYTES,
     maxBodyLength: MAX_HTML_BYTES,
     ...options,
@@ -23,7 +23,7 @@ async function safeGet(url, options = {}) {
 
 async function safePost(url, body, options = {}) {
   await assertAllowedProxyUrl(url);
-  return axios.post(url, body, {
+  return safeAxios.post(url, body, {
     maxContentLength: MAX_HTML_BYTES,
     maxBodyLength: MAX_HTML_BYTES,
     ...options,
@@ -390,10 +390,9 @@ async function validate(sourceUrl) {
 
   try {
     await assertAllowedProxyUrl(sourceUrl);
-    await axios.head(sourceUrl, {
+    await safeAxios.head(sourceUrl, {
       timeout: 5000,
       headers: { 'User-Agent': BROWSER_UA },
-      maxRedirects: 5,
       validateStatus: (status) => status !== 502 && status !== 503,
     });
     healthCache.set(cacheKey, true);

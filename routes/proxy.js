@@ -1,11 +1,11 @@
 const crypto = require('crypto');
 const express = require('express');
 const router = express.Router();
-const axios = require('axios');
 const { URL } = require('url');
 const streamExtractor = require('../services/streamExtractor');
 const { BROWSER_UA } = require('../services/constants');
 const { isAllowedProxyUrl, assertAllowedProxyUrl } = require('../services/urlGuard');
+const { safeAxios } = require('../services/safeHttp');
 
 // Read at module load — env changes after startup shouldn't affect per-request auth.
 const PROXY_TOKEN = process.env.PROXY_TOKEN || null;
@@ -51,8 +51,9 @@ function createCastSession(sourceUrl, base) {
 async function axiosGetWithRetry(url, options, maxRetries = 1) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await axios.get(url, options);
+      return await safeAxios.get(url, options);
     } catch (err) {
+      if (err.code === 'URL_NOT_ALLOWED') throw err;
       const status = err.response?.status;
       if (attempt < maxRetries && status === 503) {
         console.log(`[proxy] 503 from upstream, retrying in 1.5s (attempt ${attempt + 1}/${maxRetries})`);

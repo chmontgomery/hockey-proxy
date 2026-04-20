@@ -39,6 +39,27 @@ The Google Cast SDK requires a secure origin. To cast to your TV:
 
 The LAN IP is detected automatically on startup and printed to the console.
 
+## Sharing over the internet (ngrok tunnel)
+
+The app can expose itself publicly through [ngrok](https://ngrok.com) so you can share a link with a friend. This is gated behind an explicit `--tunnel` flag and **requires `PROXY_TOKEN` to be set** — the server refuses to start a tunnel without one.
+
+```bash
+# 1. Generate a token
+export PROXY_TOKEN=$(openssl rand -hex 24)
+
+# 2. Set your ngrok auth token (sign up free at https://dashboard.ngrok.com)
+export NGROK_AUTHTOKEN=<your-token>
+
+# 3. Start with the tunnel flag
+npm start -- --tunnel
+```
+
+The public URL prints on startup. Share it along with `?token=<PROXY_TOKEN>` so your friend's browser can hit the proxy endpoints.
+
+**What's protected:** `PROXY_TOKEN` protects only the `/proxy/*` routes (manifest/segment/cast). The rest of the app (`/`, `/watch`, `/api`, `/wild`, `/admin`) relies on URL obscurity — the ngrok URL is unguessable and short-lived. Don't share the URL beyond people you trust.
+
+**Platform support:** The `@ngrok/ngrok` SDK is an `optionalDependency` shipping prebuilt native binaries for darwin x64/arm64, linux x64/arm64 (glibc + musl), and win32 x64/arm64. On any other platform `npm install` will silently skip it, and `--tunnel` will exit with an error pointing at the [supported-platforms list](https://github.com/ngrok/ngrok-javascript#requirements).
+
 ## Environment variables
 
 | Variable | Default | Description |
@@ -46,7 +67,8 @@ The LAN IP is detected automatically on startup and printed to the console.
 | `PORT` | `3000` | HTTP port |
 | `HTTPS_PORT` | `PORT + 443` | HTTPS port (for Chromecast) |
 | `LAN_IP` | auto-detected | Override LAN IP used for Chromecast callbacks |
-| `PROXY_TOKEN` | unset | If set, all `/proxy` requests require `?token=<value>` |
+| `PROXY_TOKEN` | unset | If set, all `/proxy` requests require `?token=<value>`. Required when using `--tunnel`. |
+| `NGROK_AUTHTOKEN` | unset | ngrok auth token. Required when using `--tunnel`. |
 
 ## Legal
 

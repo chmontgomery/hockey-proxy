@@ -71,4 +71,4 @@ function isPublicIp(ipStr) {
   return range === 'unicast';
 }
 
-module.exports = { isAllowedProxyUrl, assertAllowedProxyUrl };
+module.exports = { isAllowedProxyUrl, assertAllowedProxyUrl, isPublicIp };

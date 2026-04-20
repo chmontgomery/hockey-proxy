@@ -1,13 +1,14 @@
-const axios = require('axios');
 const gameFetcher = require('./gameFetcher');
 const streamResolver = require('./streamResolver');
 const teamMatcher = require('./teamMatcher');
 const streamExtractor = require('./streamExtractor');
 const { BROWSER_UA, CASTLINK_DOMAINS } = require('./constants');
+const { safeAxios } = require('./safeHttp');
 const onhockeyScraper = require('./scrapers/onhockey');
 
 const REFRESH_INTERVAL = 90 * 1000; // 90 seconds
-let intervalHandle = null;
+let timeoutHandle = null;
+let started = false;
 let running = false;
 let lastRun = null;
 let lastResults = { total: 0, matched: 0, errors: [] };
@@ -112,7 +113,7 @@ async function discover() {
               console.log(`[discovery] Excluded castlink stream (extraction failed): ${s.url}`);
               continue;
             }
-            const { data } = await axios.get(result.m3u8Url, {
+            const { data } = await safeAxios.get(result.m3u8Url, {
               timeout: 5000,
               headers: { 'User-Agent': BROWSER_UA, 'Referer': result.headers?.Referer || '' },
               responseType: 'text',
@@ -166,12 +167,27 @@ async function discover() {
 
 /**
  * Start the background discovery loop. Idempotent — multiple calls are a no-op.
+ *
+ * Self-rescheduling: each run schedules the next one only after it finishes.
+ * This prevents pile-ups if a single discover() pass outlasts REFRESH_INTERVAL
+ * (e.g. many sequential castlink validations on a slow network).
  */
 function start() {
-  if (intervalHandle) return;
+  if (started) return;
+  started = true;
   console.log('[discovery] Starting stream discovery (every 90s)');
-  discover();
-  intervalHandle = setInterval(discover, REFRESH_INTERVAL);
+  (async () => {
+    try { await discover(); } catch (err) { console.error('[discovery] Run failed:', err.message); }
+    scheduleNext();
+  })();
+}
+
+function scheduleNext() {
+  if (!started) return;
+  timeoutHandle = setTimeout(async () => {
+    try { await discover(); } catch (err) { console.error('[discovery] Run failed:', err.message); }
+    scheduleNext();
+  }, REFRESH_INTERVAL);
 }
 
 function getStatus() {

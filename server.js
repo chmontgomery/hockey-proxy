@@ -90,9 +90,13 @@ app.listen(PORT, () => {
       let ngrok;
       try {
         ngrok = require('@ngrok/ngrok');
-      } catch {
-        console.error('--tunnel requires the optional @ngrok/ngrok dependency.');
-        console.error('Install it: npm install @ngrok/ngrok');
+      } catch (err) {
+        console.error('--tunnel requires the optional @ngrok/ngrok SDK, which is not installed.');
+        console.error(`This platform is ${process.platform}/${process.arch}.`);
+        console.error('The SDK ships prebuilt native binaries for darwin x64/arm64, linux x64/arm64 (glibc+musl), and win32 x64/arm64.');
+        console.error('Supported platforms: https://github.com/ngrok/ngrok-javascript#requirements');
+        console.error('Try: npm install @ngrok/ngrok');
+        if (err && err.message) console.error(`Underlying error: ${err.message}`);
         process.exit(1);
       }
       try {
@@ -101,8 +105,10 @@ app.listen(PORT, () => {
         console.log('Ctrl+C to stop\n');
       } catch (err) {
         if (err.message?.includes('authtoken')) {
-          console.error('ngrok auth required. Run: ngrok config add-authtoken <your-token>');
-          console.error('Get a free token at https://dashboard.ngrok.com');
+          console.error('ngrok auth required. Set NGROK_AUTHTOKEN in your environment:');
+          console.error('  export NGROK_AUTHTOKEN=<your-token>');
+          console.error('Or add it to a shell profile / .env loaded before `npm start`.');
+          console.error('Get a free token at https://dashboard.ngrok.com/get-started/your-authtoken');
         } else {
           console.error('Failed to start ngrok tunnel:', err.message);
         }
