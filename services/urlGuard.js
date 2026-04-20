@@ -47,12 +47,15 @@ async function assertAllowedProxyUrl(urlStr) {
     throw err;
   }
 
-  for (const { address } of addrs) {
-    if (!isPublicIp(address)) {
-      const err = new Error('Resolved IP not allowed');
-      err.code = 'URL_NOT_ALLOWED';
-      throw err;
-    }
+  // Require at least one public address. Hosts with mixed public+private
+  // addresses (e.g. CDN nodes with both IPv4 and a non-unicast IPv6 record)
+  // are allowed here; the guardedLookup on the shared http.Agent ensures
+  // the actual socket only dials a verified public IP.
+  const hasPublic = addrs.some(({ address }) => isPublicIp(address));
+  if (!hasPublic) {
+    const err = new Error('Resolved IP not allowed');
+    err.code = 'URL_NOT_ALLOWED';
+    throw err;
   }
 }
 
