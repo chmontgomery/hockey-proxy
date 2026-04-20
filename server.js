@@ -15,12 +15,10 @@ const streamDiscovery = require('./services/streamDiscovery');
 
 const USE_TUNNEL = process.argv.includes('--tunnel');
 
-// Require auth on public tunnels — otherwise the proxy is open to the internet.
 if (USE_TUNNEL && !process.env.PROXY_TOKEN) {
-  console.error('Refusing to start --tunnel without PROXY_TOKEN set.');
-  console.error('Generate one: openssl rand -hex 24');
-  console.error('Then: PROXY_TOKEN=<value> npm start -- --tunnel');
-  process.exit(1);
+  console.warn('Warning: starting --tunnel without PROXY_TOKEN.');
+  console.warn('The HLS proxy will be open to anyone who knows the URL.');
+  console.warn('To add bot-protection: PROXY_TOKEN=$(openssl rand -hex 24) npm start -- --tunnel');
 }
 
 const app = express();

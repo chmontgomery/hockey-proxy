@@ -19,8 +19,11 @@ router.get('/:id', async (req, res) => {
   const selectedIndex = parseInt(req.query.stream) || 0;
   const selectedStream = streams[selectedIndex] || null;
 
+  const token = process.env.PROXY_TOKEN || '';
+  const tokenSuffix = token ? `&token=${encodeURIComponent(token)}` : '';
+
   const embedUrl = selectedStream
-    ? `/proxy/play?url=${encodeURIComponent(selectedStream.url)}`
+    ? `/proxy/play?url=${encodeURIComponent(selectedStream.url)}${tokenSuffix}`
     : null;
 
   const lanIp = req.app.locals.lanIp;
@@ -28,7 +31,7 @@ router.get('/:id', async (req, res) => {
   let castUrl = null;
   if (selectedStream) {
     const castBase = `http://${lanIp}:${port}`;
-    castUrl = `/proxy/play-cast?url=${encodeURIComponent(selectedStream.url)}&base=${encodeURIComponent(castBase)}`;
+    castUrl = `/proxy/play-cast?url=${encodeURIComponent(selectedStream.url)}&base=${encodeURIComponent(castBase)}${tokenSuffix}`;
   }
 
   const pageTitle = `${game.away.abbrev} @ ${game.home.abbrev} - Hockey Proxy`;

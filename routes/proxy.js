@@ -100,7 +100,7 @@ router.get('/hls', async (req, res) => {
     let manifest = response.data;
     const baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
 
-    manifest = rewriteManifest(manifest, baseUrl, referer, proxyBase);
+    manifest = rewriteManifest(manifest, baseUrl, referer, proxyBase, { token: PROXY_TOKEN || '' });
 
     res.set('Content-Type', 'application/vnd.apple.mpegurl');
     res.set('Access-Control-Allow-Origin', '*');
@@ -165,9 +165,10 @@ router.get('/play', async (req, res) => {
     }
 
     const referer = result.headers?.Referer || '';
-    const proxiedUrl = buildHlsProxyUrl(result.m3u8Url, referer);
+    const proxiedUrl = buildHlsProxyUrl(result.m3u8Url, referer, '', PROXY_TOKEN || '');
 
-    const refreshUrl = `/proxy/refresh?url=${encodeURIComponent(sourceUrl)}`;
+    let refreshUrl = `/proxy/refresh?url=${encodeURIComponent(sourceUrl)}`;
+    if (PROXY_TOKEN) refreshUrl += `&token=${encodeURIComponent(PROXY_TOKEN)}`;
     res.render('hls-player', { hlsUrl: proxiedUrl, refreshUrl, error: null });
   } catch (err) {
     console.error('[proxy/play] Failed:', err.message);
@@ -196,7 +197,7 @@ router.get('/refresh', async (req, res) => {
     }
 
     const referer = result.headers?.Referer || '';
-    const hlsUrl = buildHlsProxyUrl(result.m3u8Url, referer);
+    const hlsUrl = buildHlsProxyUrl(result.m3u8Url, referer, '', PROXY_TOKEN || '');
 
     res.json({ hlsUrl });
   } catch (err) {
@@ -222,7 +223,9 @@ router.get('/play-cast', async (req, res) => {
 
     const sessionId = createCastSession(sourceUrl, base);
     res.set('Access-Control-Allow-Origin', '*');
-    res.json({ m3u8Url: `${base}/proxy/cast-stream/${sessionId}/stream.m3u8` });
+    let castStreamUrl = `${base}/proxy/cast-stream/${sessionId}/stream.m3u8`;
+    if (PROXY_TOKEN) castStreamUrl += `?token=${encodeURIComponent(PROXY_TOKEN)}`;
+    res.json({ m3u8Url: castStreamUrl });
   } catch (err) {
     console.error('[proxy/play-cast] Failed:', err.message);
     res.status(500).json({ error: 'Stream extraction failed: ' + err.message });
@@ -302,6 +305,7 @@ async function handleCastStream(req, res) {
     if (fetchAsText) {
       const manifest = rewriteManifest(response.data, streamBase, referer, base, {
         castSessionId: sessionId,
+        token: PROXY_TOKEN || '',
       });
       res.set('Content-Type', 'application/vnd.apple.mpegurl');
       res.set('Access-Control-Allow-Origin', '*');
@@ -325,9 +329,10 @@ router.get('/cast-stream/:sessionId/*subPath', handleCastStream);
 /**
  * Build a /proxy/hls URL that routes an m3u8 through our manifest proxy.
  */
-function buildHlsProxyUrl(m3u8Url, referer, proxyBase = '') {
+function buildHlsProxyUrl(m3u8Url, referer, proxyBase = '', token = '') {
   let url = `${proxyBase}/proxy/hls?url=${encodeURIComponent(m3u8Url)}&referer=${encodeURIComponent(referer)}`;
   if (proxyBase) url += `&proxyBase=${encodeURIComponent(proxyBase)}`;
+  if (token) url += `&token=${encodeURIComponent(token)}`;
   return url;
 }
 
@@ -335,9 +340,11 @@ function buildHlsProxyUrl(m3u8Url, referer, proxyBase = '') {
  * Rewrite URLs in an HLS manifest to route through our proxy.
  * When `opts.castSessionId` is set, sub-playlists route through /proxy/cast-stream
  * for transparent token refresh; otherwise they go through /proxy/hls.
+ * When `opts.token` is set it is appended to every generated proxy URL so
+ * clients that received the parent manifest don't need to know the token.
  */
 function rewriteManifest(manifest, baseUrl, referer, proxyBase = '', opts = {}) {
-  const { castSessionId } = opts;
+  const { castSessionId, token = '' } = opts;
   const lines = manifest.split('\n');
   const rewritten = lines.map(line => {
     const trimmed = line.trim();
@@ -345,7 +352,7 @@ function rewriteManifest(manifest, baseUrl, referer, proxyBase = '', opts = {}) 
     if (trimmed.startsWith('#')) {
       return trimmed.replace(/URI="([^"]+)"/g, (match, uri) => {
         const absolute = resolveUrl(uri, baseUrl);
-        return `URI="${proxyUrl(absolute, referer, proxyBase)}"`;
+        return `URI="${proxyUrl(absolute, referer, proxyBase, token)}"`;
       });
     }
 
@@ -356,12 +363,16 @@ function rewriteManifest(manifest, baseUrl, referer, proxyBase = '', opts = {}) 
     if (absolute.includes('.m3u8')) {
       if (castSessionId) {
         const sub = getStreamSubPath(absolute, baseUrl);
-        if (sub) return `${proxyBase}/proxy/cast-stream/${castSessionId}/${sub}`;
+        if (sub) {
+          let castUrl = `${proxyBase}/proxy/cast-stream/${castSessionId}/${sub}`;
+          if (token) castUrl += `?token=${encodeURIComponent(token)}`;
+          return castUrl;
+        }
       }
-      return buildHlsProxyUrl(absolute, referer, proxyBase);
+      return buildHlsProxyUrl(absolute, referer, proxyBase, token);
     }
 
-    return proxyUrl(absolute, referer, proxyBase);
+    return proxyUrl(absolute, referer, proxyBase, token);
   });
 
   return rewritten.join('\n');
@@ -377,8 +388,10 @@ function resolveUrl(url, baseUrl) {
   return baseUrl + url;
 }
 
-function proxyUrl(absoluteUrl, referer, proxyBase = '') {
-  return `${proxyBase}/proxy/segment?url=${encodeURIComponent(absoluteUrl)}&referer=${encodeURIComponent(referer)}`;
+function proxyUrl(absoluteUrl, referer, proxyBase = '', token = '') {
+  let url = `${proxyBase}/proxy/segment?url=${encodeURIComponent(absoluteUrl)}&referer=${encodeURIComponent(referer)}`;
+  if (token) url += `&token=${encodeURIComponent(token)}`;
+  return url;
 }
 
 /**
