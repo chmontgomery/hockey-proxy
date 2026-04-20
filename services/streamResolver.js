@@ -64,17 +64,6 @@ function getAutoGameIds() {
 }
 
 /**
- * Get auto-discovered stream counts per game (for display).
- */
-function getAutoStreamSummary() {
-  const summary = {};
-  for (const [gameId, streams] of autoStreams) {
-    summary[gameId] = streams.length;
-  }
-  return summary;
-}
-
-/**
  * Detect stream type from URL.
  */
 function detectType(url) {
@@ -91,5 +80,4 @@ module.exports = {
   getStreams,
   setAutoStreams,
   getAutoGameIds,
-  getAutoStreamSummary,
 };
