@@ -4,7 +4,6 @@ const gameFetcher = require('../services/gameFetcher');
 const { decorateWithStreamInfo } = require('../services/streamInfo');
 const streamDiscovery = require('../services/streamDiscovery');
 const { todayLocal, isValidDateStr } = require('../services/dateUtils');
-const wildSchedule = require('../services/wildSchedule');
 
 /**
  * JSON API for client-side polling.
@@ -32,29 +31,6 @@ router.get('/scores', async (req, res) => {
  */
 router.get('/discovery', (req, res) => {
   res.json(streamDiscovery.getStatus());
-});
-
-/**
- * Wild schedule live data endpoint.
- * GET /api/wild
- */
-router.get('/wild', async (req, res) => {
-  const games = await wildSchedule.fetchScheduleWithLiveData();
-  const today = todayLocal();
-
-  const todayGames = games
-    .filter(g => g.gameDate === today)
-    .map(g => ({
-      id: g.id,
-      gameState: g.gameState,
-      awayScore: g.away.score,
-      homeScore: g.home.score,
-      period: g.period,
-      clock: g.clock,
-      inIntermission: g.inIntermission,
-    }));
-
-  res.json({ games: todayGames });
 });
 
 module.exports = router;

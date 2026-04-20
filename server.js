@@ -6,10 +6,8 @@ const certManager = require('./services/certManager');
 const rateLimit = require('express-rate-limit');
 const gameRoutes = require('./routes/games');
 const watchRoutes = require('./routes/watch');
-const adminRoutes = require('./routes/admin');
 const proxyRoutes = require('./routes/proxy');
 const apiRoutes = require('./routes/api');
-const wildRoutes = require('./routes/wild');
 const gameFetcher = require('./services/gameFetcher');
 const streamDiscovery = require('./services/streamDiscovery');
 
@@ -69,10 +67,8 @@ app.use('/proxy', proxyLimiter);
 // Routes
 app.use('/', gameRoutes);
 app.use('/watch', watchRoutes);
-app.use('/admin', adminRoutes);
 app.use('/proxy', proxyRoutes);
 app.use('/api', apiRoutes);
-app.use('/wild', wildRoutes);
 
 // Start background services
 gameFetcher.startAutoRefresh();
