@@ -49,6 +49,7 @@ async function extract(sourceUrl) {
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
+  const t0 = Date.now();
   for (const extractor of extractors) {
     if (!extractor.test(sourceUrl)) continue;
     try {
@@ -56,10 +57,11 @@ async function extract(sourceUrl) {
       if (result && result.m3u8Url) {
         result.extractor = extractor.name;
         cache.set(cacheKey, result);
+        console.log(`[extractor:${extractor.name}] cache MISS ${Date.now() - t0}ms ${sourceUrl}`);
         return result;
       }
     } catch (err) {
-      console.error(`[extractor:${extractor.name}] Failed for ${sourceUrl}:`, err.message);
+      console.error(`[extractor:${extractor.name}] Failed for ${sourceUrl} after ${Date.now() - t0}ms:`, err.message);
     }
   }
 

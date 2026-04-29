@@ -45,6 +45,17 @@ function createCastSession(sourceUrl, base) {
   return id;
 }
 
+// Logs slower than this are flagged " SLOW" so they're easy to grep when diagnosing buffering.
+const SLOW_SEGMENT_MS = 2500;
+const SLOW_MANIFEST_MS = 1500;
+
+function shortUrl(u) {
+  try {
+    const parsed = new URL(u);
+    return parsed.host + parsed.pathname;
+  } catch { return String(u).slice(0, 80); }
+}
+
 /**
  * Retry-aware axios GET — retries once on 503 (upstream CDN temporarily unavailable).
  */
@@ -78,6 +89,7 @@ router.use((req, res, next) => {
  * GET /proxy/hls?url=<encoded-m3u8-url>&referer=<optional-referer>&proxyBase=<optional-base>
  */
 router.get('/hls', async (req, res) => {
+  const t0 = Date.now();
   const targetUrl = req.query.url;
   const referer = req.query.referer || '';
   const proxyBase = req.query.proxyBase || '';
@@ -96,6 +108,7 @@ router.get('/hls', async (req, res) => {
       maxContentLength: MAX_MANIFEST_BYTES,
       maxBodyLength: MAX_MANIFEST_BYTES,
     });
+    const upstreamMs = Date.now() - t0;
 
     let manifest = response.data;
     const baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
@@ -105,9 +118,12 @@ router.get('/hls', async (req, res) => {
     res.set('Content-Type', 'application/vnd.apple.mpegurl');
     res.set('Access-Control-Allow-Origin', '*');
     res.send(manifest);
+    const totalMs = Date.now() - t0;
+    const slow = totalMs > SLOW_MANIFEST_MS ? ' SLOW' : '';
+    console.log(`[proxy/hls]${slow} 200 ${manifest.length}b upstream=${upstreamMs}ms total=${totalMs}ms ${shortUrl(targetUrl)}`);
   } catch (err) {
     if (err.code === 'URL_NOT_ALLOWED') return res.status(403).send('URL not allowed');
-    console.error('[proxy/hls] Failed:', err.message);
+    console.error(`[proxy/hls] FAILED after ${Date.now() - t0}ms: ${err.message} | ${shortUrl(targetUrl)}`);
     res.status(502).send('Failed to fetch HLS manifest');
   }
 });
@@ -117,6 +133,7 @@ router.get('/hls', async (req, res) => {
  * GET /proxy/segment?url=<encoded-url>&referer=<optional-referer>
  */
 router.get('/segment', async (req, res) => {
+  const t0 = Date.now();
   const targetUrl = req.query.url;
   const referer = req.query.referer || '';
   if (!targetUrl) return res.status(400).send('Missing url parameter');
@@ -134,15 +151,34 @@ router.get('/segment', async (req, res) => {
       maxContentLength: MAX_SEGMENT_BYTES,
       maxBodyLength: MAX_SEGMENT_BYTES,
     });
+    const headerMs = Date.now() - t0;
 
     const contentType = response.headers['content-type'];
     if (contentType) res.set('Content-Type', contentType);
     res.set('Access-Control-Allow-Origin', '*');
 
+    let bytes = 0;
+    response.data.on('data', chunk => { bytes += chunk.length; });
+    response.data.on('end', () => {
+      const totalMs = Date.now() - t0;
+      const slow = totalMs > SLOW_SEGMENT_MS ? ' SLOW' : '';
+      console.log(`[proxy/segment]${slow} 200 ${bytes}b headers=${headerMs}ms total=${totalMs}ms ${shortUrl(targetUrl)}`);
+    });
+    response.data.on('error', err => {
+      console.error(`[proxy/segment] stream error after ${Date.now() - t0}ms (${bytes}b): ${err.message} | ${shortUrl(targetUrl)}`);
+    });
+    res.on('close', () => {
+      if (!response.data.readableEnded) {
+        console.warn(`[proxy/segment] client closed mid-stream after ${Date.now() - t0}ms (${bytes}b) ${shortUrl(targetUrl)}`);
+      }
+    });
+
     response.data.pipe(res);
   } catch (err) {
     if (err.code === 'URL_NOT_ALLOWED') return res.status(403).send('URL not allowed');
-    console.error('[proxy/segment] Failed:', err.message, '| url:', targetUrl);
+    const status = err.response?.status;
+    const code = err.code || '';
+    console.error(`[proxy/segment] FAILED after ${Date.now() - t0}ms ${status || code}: ${err.message} | ${shortUrl(targetUrl)}`);
     res.status(502).send('Segment fetch failed');
   }
 });
@@ -239,6 +275,7 @@ router.get('/play-cast', async (req, res) => {
  * GET /proxy/cast-stream/:sessionId/<segment.ts>     — TS segments
  */
 async function handleCastStream(req, res) {
+  const t0 = Date.now();
   const { sessionId } = req.params;
   const rawSubPath = req.params.subPath;
   const subPath = Array.isArray(rawSubPath) ? rawSubPath.join('/') : (rawSubPath || 'stream.m3u8');
@@ -250,7 +287,10 @@ async function handleCastStream(req, res) {
   }
 
   const session = castSessions.get(sessionId);
-  if (!session) return res.status(404).send('Cast session not found or expired');
+  if (!session) {
+    console.warn(`[proxy/cast-stream] session ${sessionId.slice(0, 8)}… not found (sub=${subPath})`);
+    return res.status(404).send('Cast session not found or expired');
+  }
   session.lastUsed = Date.now();
 
   const { sourceUrl, base } = session;
@@ -259,10 +299,14 @@ async function handleCastStream(req, res) {
   try {
     result = await streamExtractor.extract(sourceUrl);
   } catch (err) {
-    console.error('[proxy/cast-stream] Extraction failed:', err.message);
+    console.error(`[proxy/cast-stream] extraction FAILED after ${Date.now() - t0}ms: ${err.message}`);
     return res.status(502).send('Stream extraction failed');
   }
-  if (!result || !result.m3u8Url) return res.status(502).send('Stream extraction returned no URL');
+  if (!result || !result.m3u8Url) {
+    console.error(`[proxy/cast-stream] extraction returned no URL after ${Date.now() - t0}ms`);
+    return res.status(502).send('Stream extraction returned no URL');
+  }
+  const extractMs = Date.now() - t0;
 
   const m3u8Url = result.m3u8Url;
   const streamBase = m3u8Url.substring(0, m3u8Url.lastIndexOf('/') + 1);
@@ -294,6 +338,7 @@ async function handleCastStream(req, res) {
       try { headers['Origin'] = new URL(referer).origin; } catch {}
     }
 
+    const tFetch = Date.now();
     const response = await axiosGetWithRetry(targetUrl, {
       timeout: 10000,
       headers,
@@ -301,6 +346,7 @@ async function handleCastStream(req, res) {
       maxContentLength: fetchAsText ? MAX_MANIFEST_BYTES : MAX_SEGMENT_BYTES,
       maxBodyLength: fetchAsText ? MAX_MANIFEST_BYTES : MAX_SEGMENT_BYTES,
     });
+    const upstreamMs = Date.now() - tFetch;
 
     if (fetchAsText) {
       const manifest = rewriteManifest(response.data, streamBase, referer, base, {
@@ -310,15 +356,37 @@ async function handleCastStream(req, res) {
       res.set('Content-Type', 'application/vnd.apple.mpegurl');
       res.set('Access-Control-Allow-Origin', '*');
       res.send(manifest);
+      const totalMs = Date.now() - t0;
+      const slow = totalMs > SLOW_MANIFEST_MS ? ' SLOW' : '';
+      console.log(`[proxy/cast-stream]${slow} 200 m3u8 ${manifest.length}b extract=${extractMs}ms upstream=${upstreamMs}ms total=${totalMs}ms sub=${subPath}`);
     } else {
       const contentType = response.headers['content-type'];
       if (contentType) res.set('Content-Type', contentType);
       res.set('Access-Control-Allow-Origin', '*');
+
+      let bytes = 0;
+      response.data.on('data', chunk => { bytes += chunk.length; });
+      response.data.on('end', () => {
+        const totalMs = Date.now() - t0;
+        const slow = totalMs > SLOW_SEGMENT_MS ? ' SLOW' : '';
+        console.log(`[proxy/cast-stream]${slow} 200 seg ${bytes}b extract=${extractMs}ms upstream=${upstreamMs}ms total=${totalMs}ms sub=${subPath}`);
+      });
+      response.data.on('error', err => {
+        console.error(`[proxy/cast-stream] stream error after ${Date.now() - t0}ms (${bytes}b): ${err.message} | sub=${subPath}`);
+      });
+      res.on('close', () => {
+        if (!response.data.readableEnded) {
+          console.warn(`[proxy/cast-stream] client closed mid-stream after ${Date.now() - t0}ms (${bytes}b) sub=${subPath}`);
+        }
+      });
+
       response.data.pipe(res);
     }
   } catch (err) {
     if (err.code === 'URL_NOT_ALLOWED') return res.status(403).send('URL not allowed');
-    console.error(`[proxy/cast-stream] Fetch failed for ${targetUrl}:`, err.message);
+    const status = err.response?.status;
+    const code = err.code || '';
+    console.error(`[proxy/cast-stream] FAILED after ${Date.now() - t0}ms ${status || code}: ${err.message} | ${shortUrl(targetUrl)}`);
     res.status(502).send('Failed to fetch stream content');
   }
 }

@@ -5,3 +5,4 @@ data/streams.json
 .superpowers/
 .worktrees/
 .env
+logs/
