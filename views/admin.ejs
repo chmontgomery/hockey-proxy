@@ -1,0 +1,102 @@
+<%- include('partials/header') %>
+
+<div class="page-header">
+  <h1>Admin</h1>
+</div>
+
+<section class="admin-section">
+  <h2>Discovery Stats</h2>
+  <div class="stat-cards" id="stat-cards">
+    <div class="stat-card">
+      <div class="stat-value" id="stat-games-total"><%= stats.gamesTotal %></div>
+      <div class="stat-label">Games Today</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="stat-games-streams"><%= stats.gamesWithStreams %></div>
+      <div class="stat-label">Games w/ Streams</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="stat-streams-total"><%= stats.streamsTotal %></div>
+      <div class="stat-label">Total Streams</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value stat-value-green" id="stat-active-viewers"><%= stats.activeViewerCount %></div>
+      <div class="stat-label">Active Viewers</div>
+    </div>
+  </div>
+</section>
+
+<section class="admin-section">
+  <h2>Active Viewers <span class="muted" style="font-size:0.85rem;font-weight:400;">(proxy hits in last 60s)</span></h2>
+  <table class="viewers-table">
+    <thead>
+      <tr>
+        <th>IP</th>
+        <th>Location</th>
+        <th>Game</th>
+        <th>Stream</th>
+        <th>Last Seen</th>
+      </tr>
+    </thead>
+    <tbody id="viewers-tbody">
+      <% if (viewers.length === 0) { %>
+        <tr><td colspan="5" class="viewers-empty">No active viewers.</td></tr>
+      <% } else { %>
+        <% viewers.forEach(function(v) { %>
+          <tr>
+            <td><%= v.ip %></td>
+            <td><%= v.location %></td>
+            <td><%= v.game %></td>
+            <td><%= v.streamLabel %></td>
+            <td><%= v.lastSeenSeconds %>s ago</td>
+          </tr>
+        <% }); %>
+      <% } %>
+    </tbody>
+  </table>
+  <div class="admin-meta">
+    Auto-refreshes every 30s &middot; Last updated: <span id="last-updated"><%= new Date().toLocaleTimeString() %></span>
+  </div>
+</section>
+
+<script>
+function renderStats(stats) {
+  document.getElementById('stat-games-total').textContent = stats.gamesTotal;
+  document.getElementById('stat-games-streams').textContent = stats.gamesWithStreams;
+  document.getElementById('stat-streams-total').textContent = stats.streamsTotal;
+  document.getElementById('stat-active-viewers').textContent = stats.activeViewerCount;
+}
+
+function renderViewers(viewers) {
+  const tbody = document.getElementById('viewers-tbody');
+  if (viewers.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="viewers-empty">No active viewers.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = viewers.map(function(v) {
+    return '<tr>' +
+      '<td>' + v.ip + '</td>' +
+      '<td>' + v.location + '</td>' +
+      '<td>' + v.game + '</td>' +
+      '<td>' + v.streamLabel + '</td>' +
+      '<td>' + v.lastSeenSeconds + 's ago</td>' +
+      '</tr>';
+  }).join('');
+}
+
+async function refresh() {
+  try {
+    const res = await fetch('/api/admin');
+    const data = await res.json();
+    renderStats(data.stats);
+    renderViewers(data.viewers);
+    document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
+  } catch (e) {
+    console.error('Admin refresh failed:', e);
+  }
+}
+
+setInterval(refresh, 30000);
+</script>
+
+<%- include('partials/footer') %>
