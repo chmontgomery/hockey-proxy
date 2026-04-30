@@ -27,4 +27,11 @@ function getActive() {
   return active.sort((a, b) => b.lastSeen - a.lastSeen);
 }
 
+setInterval(() => {
+  const cutoff = Date.now() - ACTIVE_WINDOW_MS;
+  for (const [ip, entry] of viewers) {
+    if (entry.lastSeen < cutoff) viewers.delete(ip);
+  }
+}, 5 * 60 * 1000);
+
 module.exports = { record, touch, getActive };

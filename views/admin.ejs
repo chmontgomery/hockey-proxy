@@ -67,6 +67,10 @@ function renderStats(stats) {
   document.getElementById('stat-active-viewers').textContent = stats.activeViewerCount;
 }
 
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function renderViewers(viewers) {
   const tbody = document.getElementById('viewers-tbody');
   if (viewers.length === 0) {
@@ -75,11 +79,11 @@ function renderViewers(viewers) {
   }
   tbody.innerHTML = viewers.map(function(v) {
     return '<tr>' +
-      '<td>' + v.ip + '</td>' +
-      '<td>' + v.location + '</td>' +
-      '<td>' + v.game + '</td>' +
-      '<td>' + v.streamLabel + '</td>' +
-      '<td>' + v.lastSeenSeconds + 's ago</td>' +
+      '<td>' + esc(v.ip) + '</td>' +
+      '<td>' + esc(v.location) + '</td>' +
+      '<td>' + esc(v.game) + '</td>' +
+      '<td>' + esc(v.streamLabel) + '</td>' +
+      '<td>' + esc(v.lastSeenSeconds) + 's ago</td>' +
       '</tr>';
   }).join('');
 }

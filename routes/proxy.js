@@ -193,7 +193,7 @@ router.get('/segment', async (req, res) => {
 router.get('/play', async (req, res) => {
   const sourceUrl = req.query.url;
   if (!sourceUrl) return res.status(400).send('Missing url parameter');
-  if (sourceUrl) viewerTracker.record(req.ip, sourceUrl);
+  viewerTracker.record(req.ip, sourceUrl);
 
   try {
     const result = await streamExtractor.extract(sourceUrl);
@@ -254,7 +254,7 @@ router.get('/play-cast', async (req, res) => {
   const sourceUrl = req.query.url;
   const base = req.query.base || '';
   if (!sourceUrl) return res.status(400).json({ error: 'Missing url parameter' });
-  if (sourceUrl) viewerTracker.record(req.ip, sourceUrl);
+  viewerTracker.record(req.ip, sourceUrl);
 
   try {
     const result = await streamExtractor.extract(sourceUrl);
