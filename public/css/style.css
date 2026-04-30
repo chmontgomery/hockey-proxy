@@ -360,6 +360,77 @@ body {
   color: var(--accent);
 }
 
+/* Admin stat cards */
+.stat-cards {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 2rem;
+}
+
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.75rem;
+  min-width: 140px;
+}
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--accent);
+  line-height: 1;
+  margin-bottom: 0.25rem;
+}
+
+.stat-value-green {
+  color: var(--success);
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Admin viewers table */
+.viewers-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.viewers-table th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  color: var(--text-muted);
+  font-weight: 400;
+  font-size: 0.8rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.viewers-table td {
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid rgba(42, 42, 74, 0.5);
+}
+
+.viewers-table tr:last-child td {
+  border-bottom: none;
+}
+
+.viewers-empty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 2rem !important;
+}
+
+.admin-meta {
+  text-align: right;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.5rem;
+}
+
 /* Error Page */
 .error-page {
   text-align: center;
