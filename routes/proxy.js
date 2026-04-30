@@ -42,7 +42,7 @@ function createCastSession(sourceUrl, base) {
   }
   const id = crypto.randomUUID();
   const now = Date.now();
-  castSessions.set(id, { sourceUrl, base, createdAt: now, lastUsed: now });
+  castSessions.set(id, { sourceUrl, base, clientIp: null, createdAt: now, lastUsed: now });
   return id;
 }
 
@@ -263,6 +263,7 @@ router.get('/play-cast', async (req, res) => {
     }
 
     const sessionId = createCastSession(sourceUrl, base);
+    castSessions.get(sessionId).clientIp = req.ip;
     res.set('Access-Control-Allow-Origin', '*');
     let castStreamUrl = `${base}/proxy/cast-stream/${sessionId}/stream.m3u8`;
     if (PROXY_TOKEN) castStreamUrl += `?token=${encodeURIComponent(PROXY_TOKEN)}`;
@@ -297,6 +298,7 @@ async function handleCastStream(req, res) {
     return res.status(404).send('Cast session not found or expired');
   }
   session.lastUsed = Date.now();
+  if (session.clientIp) viewerTracker.touch(session.clientIp);
 
   const { sourceUrl, base } = session;
 
