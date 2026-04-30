@@ -175,4 +175,12 @@ function startAutoRefresh() {
   refreshInterval = setInterval(() => fetchGames(todayLocal()), 5 * 60 * 1000);
 }
 
-module.exports = { fetchGames, fetchGamesWithLiveData, fetchScores, startAutoRefresh };
+/**
+ * Return today's games from the in-memory cache without triggering a fetch.
+ * Returns [] if the cache hasn't been populated yet.
+ */
+function getCachedGames() {
+  return cache.get(`games_${todayLocal()}`) || [];
+}
+
+module.exports = { fetchGames, fetchGamesWithLiveData, fetchScores, startAutoRefresh, getCachedGames };
