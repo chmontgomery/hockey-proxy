@@ -6,6 +6,7 @@ const streamExtractor = require('../services/streamExtractor');
 const { BROWSER_UA } = require('../services/constants');
 const { isAllowedProxyUrl, assertAllowedProxyUrl } = require('../services/urlGuard');
 const { safeAxios } = require('../services/safeHttp');
+const viewerTracker = require('../services/viewerTracker');
 
 // Read at module load — env changes after startup shouldn't affect per-request auth.
 const PROXY_TOKEN = process.env.PROXY_TOKEN || null;
@@ -95,6 +96,7 @@ router.get('/hls', async (req, res) => {
   const proxyBase = req.query.proxyBase || '';
   if (!targetUrl) return res.status(400).send('Missing url parameter');
   if (!isAllowedProxyUrl(targetUrl)) return res.status(403).send('URL not allowed');
+  viewerTracker.touch(req.ip);
 
   try {
     await assertAllowedProxyUrl(targetUrl);
@@ -138,6 +140,7 @@ router.get('/segment', async (req, res) => {
   const referer = req.query.referer || '';
   if (!targetUrl) return res.status(400).send('Missing url parameter');
   if (!isAllowedProxyUrl(targetUrl)) return res.status(403).send('URL not allowed');
+  viewerTracker.touch(req.ip);
 
   try {
     await assertAllowedProxyUrl(targetUrl);
@@ -190,6 +193,7 @@ router.get('/segment', async (req, res) => {
 router.get('/play', async (req, res) => {
   const sourceUrl = req.query.url;
   if (!sourceUrl) return res.status(400).send('Missing url parameter');
+  if (sourceUrl) viewerTracker.record(req.ip, sourceUrl);
 
   try {
     const result = await streamExtractor.extract(sourceUrl);
@@ -250,6 +254,7 @@ router.get('/play-cast', async (req, res) => {
   const sourceUrl = req.query.url;
   const base = req.query.base || '';
   if (!sourceUrl) return res.status(400).json({ error: 'Missing url parameter' });
+  if (sourceUrl) viewerTracker.record(req.ip, sourceUrl);
 
   try {
     const result = await streamExtractor.extract(sourceUrl);
