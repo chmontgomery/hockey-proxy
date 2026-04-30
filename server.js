@@ -9,6 +9,7 @@ const gameRoutes = require('./routes/games');
 const watchRoutes = require('./routes/watch');
 const proxyRoutes = require('./routes/proxy');
 const apiRoutes = require('./routes/api');
+const adminRoutes = require('./routes/admin');
 const gameFetcher = require('./services/gameFetcher');
 const streamDiscovery = require('./services/streamDiscovery');
 
@@ -70,6 +71,7 @@ app.use('/', gameRoutes);
 app.use('/watch', watchRoutes);
 app.use('/proxy', proxyRoutes);
 app.use('/api', apiRoutes);
+app.use('/admin', adminRoutes);
 
 // Start background services
 gameFetcher.startAutoRefresh();
