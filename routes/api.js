@@ -4,6 +4,7 @@ const gameFetcher = require('../services/gameFetcher');
 const { decorateWithStreamInfo } = require('../services/streamInfo');
 const streamDiscovery = require('../services/streamDiscovery');
 const { todayLocal, isValidDateStr } = require('../services/dateUtils');
+const { buildAdminData } = require('./admin');
 
 /**
  * JSON API for client-side polling.
@@ -31,6 +32,19 @@ router.get('/scores', async (req, res) => {
  */
 router.get('/discovery', (req, res) => {
   res.json(streamDiscovery.getStatus());
+});
+
+/**
+ * Admin data endpoint for client-side polling.
+ * GET /api/admin
+ */
+router.get('/admin', async (req, res) => {
+  try {
+    const data = await buildAdminData();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;
