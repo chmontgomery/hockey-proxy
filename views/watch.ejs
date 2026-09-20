@@ -61,11 +61,14 @@
         own ads. Cast is unavailable for embedded streams.
       </p>
     <% } %>
+    <%# Fallback embeds deliberately carry no sandbox attribute: these players
+        detect one and refuse to play, showing "Remove sandbox attributes on the
+        iframe tag" instead of video. Verified in Chrome — adding allow-popups
+        does not satisfy them either, so it is all-or-nothing. %>
     <div class="video-responsive">
       <iframe
         src="<%= embedUrl %>"
         referrerpolicy="no-referrer"
-        <% if (!extractable) { %>sandbox="allow-scripts allow-same-origin allow-presentation allow-forms"<% } %>
         allowfullscreen
       ></iframe>
     </div>

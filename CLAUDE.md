@@ -74,7 +74,7 @@ Extractors are tried in sequence for each stream URL. Add new ones to the `extra
 
 Stream ranking (`streamRank()`): Rank 0 = direct/reliable extraction, shown first. Rank 1 = multi-hop API extraction, shown second. Rank 2 = non-extractable iframe with ads, shown last and dimmed.
 
-Non-extractable sources are kept by `streamDiscovery` rather than filtered out, and `routes/watch.js` embeds their origin page directly instead of routing through `/proxy/play`. Those embeds are sandboxed without `allow-popups` (blocks popunder ads) and get no Cast button, since Chromecast needs a real m3u8.
+Non-extractable sources are kept by `streamDiscovery` rather than filtered out, and `routes/watch.js` embeds their origin page directly instead of routing through `/proxy/play`. Those embeds get no Cast button, since Chromecast needs a real m3u8. They also carry **no `sandbox` attribute**: these players detect one and refuse to play ("Remove sandbox attributes on the iframe tag"), and `allow-popups` does not satisfy them — it is all-or-nothing, so rank-2 sources come with their own ads by design.
 
 ### Environment variables
 
