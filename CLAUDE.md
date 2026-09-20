@@ -9,7 +9,7 @@ npm start          # Production — node server.js
 npm run dev        # Development — node --watch server.js (auto-restarts on file changes)
 ```
 
-No test framework is configured. There are no lint scripts. The app runs on port 3000 by default (`PORT` env var overrides).
+Tests run with `npm test` (`node --test test/*.test.js`). There are no lint scripts. The app runs on port 3000 by default (`PORT` env var overrides).
 
 ## Architecture
 
@@ -68,10 +68,13 @@ Extractors are tried in sequence for each stream URL. Add new ones to the `extra
 | `streamscenter` | streams.center | Outer page → `hls.php?stream=ID` → POST `decrypt.php` with encrypted input → m3u8 URL | 1 |
 | `embedhd` | embedhd.org | Page HTML → `fid` variable → player PHP page (exposestrat.com / stellarthread.com) → char-array-join m3u8 URL | 1 |
 | `topembed` | viewembed.ru, wikisport.club, dlstreams.top, abcsport.top | Outer page → `CHANNEL_KEY` + `M3U8_SERVERS` (directly or via embedkclx.sbs iframe) → `/server_lookup` API → `server_key` → constructed m3u8. Falls back to `extractFidPlayer` for pages using fid + exposestrat/stellarthread. | 1 |
+| `wikisport` | wikisport.info, wikisport.club | Wrapper shell → iframe player URL → either `const streamUrls = [...]` (in-stream.click) or `window._econfig` (assetrage.net, same payload format as castlink) → m3u8. Dispatches on page signature, not hostname, since the inner domains rotate. | 1 |
 
-**Not extractable:** `embedsports.top`, `embedsports.me` (639KB obfuscated JS bundles, impractical without headless browser), `olimp-video.com` (hash-auth via sportplayer.io).
+**Not extractable:** `embedsports.top`, `embedsports.me` (639KB obfuscated JS bundles, impractical without headless browser), `olimp-video.com` (hash-auth via sportplayer.io). As of 2026-09-19 onhockey.tv also links `players.brightcove.net`, `www.vdocity.com`, `embed.st`, `dlive.sx`, `embed.new.video` and `streame.center` — none have extractors yet, so they surface as rank-2 iframe embeds. Note that several older registered domains (`viewembed.ru`, `dlstreams.top`, `abcsport.top`, `lovetier.bz`, `gopst.link`) no longer resolve; these sites rotate domains frequently, so a sudden "0 streams found" usually means the scraped hosts no longer match any extractor's `test()`.
 
 Stream ranking (`streamRank()`): Rank 0 = direct/reliable extraction, shown first. Rank 1 = multi-hop API extraction, shown second. Rank 2 = non-extractable iframe with ads, shown last and dimmed.
+
+Non-extractable sources are kept by `streamDiscovery` rather than filtered out, and `routes/watch.js` embeds their origin page directly instead of routing through `/proxy/play`. Those embeds are sandboxed without `allow-popups` (blocks popunder ads) and get no Cast button, since Chromecast needs a real m3u8.
 
 ### Environment variables
 
