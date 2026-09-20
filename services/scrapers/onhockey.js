@@ -147,17 +147,32 @@ function parseMatchup(text) {
 
 /**
  * Extract the actual stream URL from a wrapper PHP href.
- * e.g. "np_stream400.php?channel=//vuen.link/ch?id=73" → "https://vuen.link/ch?id=73"
+ *
+ * The wrapper script name determines how `channel=` must be read:
+ *   np_stream400.php?channel=//vuen.link/ch?id=73 → a protocol-relative URL
+ *   np_youtube.php?channel=t6TfM3cnBV8            → a bare YouTube video ID
+ *   np_vk.php?channel=-41593209&id=456253548      → a VK owner/video pair
+ *
+ * Treating them all as URLs is what produced hrefs like "https://t6TfM3cnBV8".
  */
 function extractStreamUrl(href) {
   if (!href) return null;
 
   const match = href.match(WRAPPER_PATTERN);
   if (match) {
-    let url = decodeURIComponent(match[1]);
+    const payload = decodeURIComponent(match[1]);
 
-    // Skip malformed URLs (e.g. VK params that start with a dash)
-    if (/^-?\d+/.test(url)) return null;
+    if (/(^|\/)np_youtube\.php/i.test(href)) {
+      return youtubeEmbedUrl(payload);
+    }
+
+    // VK needs a signed player we don't implement — drop rather than emit junk.
+    if (/(^|\/)np_vk\.php/i.test(href)) return null;
+
+    let url = payload;
+
+    // Anything still leading with a bare numeric/VK-style id is not a URL.
+    if (/^-?\d+(&|$)/.test(url)) return null;
 
     // Ensure it has a protocol
     if (url.startsWith('//')) {
@@ -165,14 +180,29 @@ function extractStreamUrl(href) {
     } else if (!url.startsWith('http')) {
       url = 'https://' + url;
     }
-    return url;
+    return isHttpUrl(url) ? url : null;
   }
 
   // If the href itself is a direct URL (no wrapper)
-  if (href.startsWith('http')) return href;
-  if (href.startsWith('//')) return 'https:' + href;
+  if (href.startsWith('http')) return isHttpUrl(href) ? href : null;
+  if (href.startsWith('//')) return isHttpUrl('https:' + href) ? 'https:' + href : null;
 
   return null;
+}
+
+/** YouTube IDs are exactly 11 chars of [A-Za-z0-9_-]. */
+function youtubeEmbedUrl(videoId) {
+  if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return null;
+  return `https://www.youtube.com/embed/${videoId}`;
+}
+
+function isHttpUrl(url) {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -197,4 +227,4 @@ function detectLanguage(linkEl, parentTd) {
   return null;
 }
 
-module.exports = { scrape };
+module.exports = { scrape, extractStreamUrl };
