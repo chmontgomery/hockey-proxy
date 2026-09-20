@@ -38,6 +38,7 @@ const extractors = [
   { name: 'streamscenter', test: isStreamsCenter, extract: extractStreamsCenter },
   { name: 'embedhd', test: isEmbedHd, extract: extractEmbedHd },
   { name: 'topembed', test: isTopembed, extract: extractTopembed },
+  { name: 'wikisport', test: isWikisport, extract: extractWikisport },
 ];
 
 /**
@@ -152,7 +153,15 @@ async function extractCastlinkPlayer(playerUrl, refererOrigin) {
     return null;
   }
 
-  const configMatch = html.match(/window\._econfig\s*=\s*'([^']+)'/);
+  return parseEconfigPlayer(html, playerUrl);
+}
+
+/**
+ * Decode a `window._econfig` player payload into a stream result.
+ * Shared with wikisport — assetrage.net serves the identical format.
+ */
+function parseEconfigPlayer(html, playerUrl) {
+  const configMatch = String(html).match(/window\._econfig\s*=\s*'([^']+)'/);
   if (!configMatch) return null;
 
   const config = decodeCastlinkConfig(configMatch[1]);
@@ -411,6 +420,95 @@ async function validate(sourceUrl) {
   }
 }
 
+// --- wikisport (wikisport.info, wikisport.club) ---
+//
+// Two-hop chain. The outer page is a thin shell whose only useful content is an
+// <iframe> pointing at the real player; it also self-redirects to /sorry unless
+// it is itself framed, but that check is client-side JS so it never fires here.
+//
+// Two player stacks are in rotation behind it:
+//   /0nhl/N.php    -> in-stream.click/fslive.php -> `const streamUrls = [...]`
+//   /court/NNN.php -> assetrage.net/e/ID         -> window._econfig (castlink format)
+//
+// Dispatch is by page signature rather than hostname: these inner domains rotate
+// often, but the two payload shapes have been stable.
+
+const WIKISPORT_DOMAINS = ['wikisport.info', 'wikisport.club'];
+
+function isWikisport(url) {
+  return WIKISPORT_DOMAINS.some(d => url.includes(d));
+}
+
+/** Pull the player URL out of a wrapper shell page. */
+function parseWrapperIframe(html, baseUrl) {
+  const match = String(html).match(/<iframe[^>]+src=["']([^"']+)["']/i);
+  if (!match) return null;
+  try {
+    return new URL(match[1], baseUrl).href;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * in-stream.click style player: a plain JS array of mirrored m3u8 URLs.
+ * The literal is JSON-compatible, so \u0026 decodes back to `&` — losing that
+ * would corrupt the signed `st`/`e` query and the CDN would 403.
+ */
+function parseFsLiveStreamUrls(html) {
+  const match = String(html).match(/streamUrls\s*=\s*(\[[^\]]*\])/);
+  if (!match) return [];
+  try {
+    const parsed = JSON.parse(match[1]);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(u => typeof u === 'string' && u.includes('.m3u8'));
+  } catch {
+    return [];
+  }
+}
+
+async function extractWikisport(url) {
+  let wrapperHtml;
+  try {
+    const resp = await safeGet(url, {
+      timeout: 10000,
+      headers: { 'User-Agent': BROWSER_UA, 'Referer': new URL(url).origin + '/' },
+    });
+    wrapperHtml = resp.data;
+  } catch (err) {
+    console.error(`[extractor:wikisport] Wrapper fetch failed for ${url}:`, err.message);
+    return null;
+  }
+
+  const playerUrl = parseWrapperIframe(wrapperHtml, url);
+  if (!playerUrl) return null;
+
+  let playerHtml;
+  try {
+    const resp = await safeGet(playerUrl, {
+      timeout: 15000,
+      headers: { 'User-Agent': BROWSER_UA, 'Referer': url },
+    });
+    playerHtml = resp.data;
+  } catch (err) {
+    console.error(`[extractor:wikisport] Player fetch failed for ${playerUrl}:`, err.message);
+    return null;
+  }
+
+  const econfig = parseEconfigPlayer(playerHtml, playerUrl);
+  if (econfig) return econfig;
+
+  const streamUrls = parseFsLiveStreamUrls(playerHtml);
+  if (!streamUrls.length) return null;
+
+  // The CDN 403s on the wrapper's Referer — it wants the player origin.
+  return {
+    m3u8Url: streamUrls[0],
+    headers: { 'Referer': new URL(playerUrl).origin + '/' },
+    refreshable: true,
+  };
+}
+
 /**
  * Return a numeric rank for stream quality/cleanliness (lower = better).
  * 0 — Direct/dedicated m3u8 extraction
@@ -425,6 +523,7 @@ function streamRank(url) {
   if (isStreamsCenter(url)) return 1;
   if (isEmbedHd(url))     return 1;
   if (isTopembed(url))    return 1;
+  if (isWikisport(url))   return 1;
   return 2;
 }
 
@@ -435,4 +534,6 @@ function clearCache(sourceUrl) {
 module.exports = {
   extract, isExtractable, validate, extractors, streamRank, clearCache,
   MAX_MANIFEST_BYTES,
+  // exported for tests
+  parseWrapperIframe, parseFsLiveStreamUrls, parseEconfigPlayer,
 };
