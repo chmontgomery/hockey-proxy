@@ -293,6 +293,16 @@ body {
   border: 0;
 }
 
+.stream-note {
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--accent);
+  background: var(--border);
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
 .no-stream {
   text-align: center;
   padding: 4rem 2rem;

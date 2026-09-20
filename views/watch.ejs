@@ -33,7 +33,8 @@
     <div class="stream-selector">
       <% streams.forEach(function(s, i) { %>
         <a href="/watch/<%= game.id %>?stream=<%= i %>&date=<%= date %>"
-           class="btn btn-sm <%= i === selectedIndex ? 'btn-active' : '' %>">
+           class="btn btn-sm <%= i === selectedIndex ? 'btn-active' : '' %> <%= s.rank >= 2 ? 'btn-dim' : '' %>"
+           <% if (s.rank >= 2) { %>title="Embedded source — contains ads, no Cast support"<% } %>>
           <%= s.label %><% if (s.lang && s.lang !== 'unknown') { %> (<%= s.lang %>)<% } %>
         </a>
       <% }); %>
@@ -48,13 +49,27 @@
     </div>
   <% } %>
 
-  <div class="video-responsive">
-    <iframe
-      src="<%= embedUrl %>"
-      referrerpolicy="no-referrer"
-      allowfullscreen
-    ></iframe>
-  </div>
+  <% if (!embedUrl) { %>
+    <div class="no-stream">
+      <h2>Stream unavailable</h2>
+      <p>This source could not be embedded. Try another stream above.</p>
+    </div>
+  <% } else { %>
+    <% if (!extractable) { %>
+      <p class="stream-note">
+        No extractor for this source — showing the original embed, which carries its
+        own ads. Cast is unavailable for embedded streams.
+      </p>
+    <% } %>
+    <div class="video-responsive">
+      <iframe
+        src="<%= embedUrl %>"
+        referrerpolicy="no-referrer"
+        <% if (!extractable) { %>sandbox="allow-scripts allow-same-origin allow-presentation allow-forms"<% } %>
+        allowfullscreen
+      ></iframe>
+    </div>
+  <% } %>
 <% } %>
 
 <% if (castUrl) { %>

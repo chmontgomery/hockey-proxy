@@ -103,6 +103,10 @@ async function discover() {
       const deduped = deduplicateStreams(streams);
       const extractable = deduped.filter(s => streamExtractor.isExtractable(s.url));
 
+      // Sources with no extractor still play as a plain (ad-laden) iframe embed.
+      // They rank last, so they only surface when nothing cleaner is available.
+      const iframeOnly = deduped.filter(s => !streamExtractor.isExtractable(s.url));
+
       // Validate castlink streams — their CDN returns 404 for dead channels.
       const validated = [];
       for (const s of extractable) {
@@ -137,7 +141,7 @@ async function discover() {
         }
       }
 
-      const healthy = validated.sort((a, b) =>
+      const healthy = [...validated, ...iframeOnly].sort((a, b) =>
         streamExtractor.streamRank(a.url) - streamExtractor.streamRank(b.url)
       );
 
