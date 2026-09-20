@@ -202,38 +202,60 @@ function decodeCastlinkConfig(encoded) {
   }
 }
 
-// --- streams.center ---
+// --- streamscenter (streams.center, streame.center) ---
+//
+// Same operator across both domains — the inner page still titles itself
+// "streamscenter". Two payload formats are in circulation: the newer one
+// publishes the m3u8 inline, the older one hands back an encrypted blob that
+// decrypt.php turns into a URL. Inner URLs are built from the outer origin so
+// a domain rotation only needs an entry in the list below.
+
+const STREAMSCENTER_DOMAINS = ['streams.center', 'streame.center'];
 
 function isStreamsCenter(url) {
-  return url.includes('streams.center');
+  return STREAMSCENTER_DOMAINS.some(d => url.includes(d));
 }
 
 async function extractStreamsCenter(url) {
+  const origin = new URL(url).origin;
+
   const { data: outerHtml } = await safeGet(url, {
     timeout: 10000,
     headers: { 'User-Agent': BROWSER_UA, 'Referer': 'https://onhockey.tv/' },
   });
 
-  const iframeMatch = outerHtml.match(/hls\.php\?stream=([^"&\s]+)/);
+  const iframeMatch = String(outerHtml).match(/hls\.php\?stream=([^"&\s]+)/);
   if (!iframeMatch) return null;
   const streamId = iframeMatch[1];
 
-  const { data: innerHtml } = await safeGet(
-    `https://streams.center/embed/hls.php?stream=${streamId}`,
-    { timeout: 10000, headers: { 'User-Agent': BROWSER_UA, 'Referer': 'https://streams.center/' } }
-  );
+  const innerUrl = `${origin}/embed/hls.php?stream=${streamId}`;
+  const { data: innerHtml } = await safeGet(innerUrl, {
+    timeout: 15000,
+    headers: { 'User-Agent': BROWSER_UA, 'Referer': origin + '/' },
+  });
 
-  const inputMatch = innerHtml.match(/input:\s*"([^"]+)"/);
+  // Current format: the signed m3u8 sits inline in the player bootstrap.
+  const inline = parseInlineStreamUrls(innerHtml);
+  if (inline.length) {
+    return {
+      m3u8Url: inline[0],
+      headers: { 'Referer': origin + '/' },
+      refreshable: true,
+    };
+  }
+
+  // Legacy format: POST the encrypted blob back to decrypt.php.
+  const inputMatch = String(innerHtml).match(/input:\s*"([^"]+)"/);
   if (!inputMatch) return null;
 
   const { data: m3u8Url } = await safePost(
-    'https://streams.center/embed/decrypt.php',
+    `${origin}/embed/decrypt.php`,
     `input=${encodeURIComponent(inputMatch[1])}`,
     {
       timeout: 10000,
       headers: {
         'User-Agent': BROWSER_UA,
-        'Referer': `https://streams.center/embed/hls.php?stream=${streamId}`,
+        'Referer': innerUrl,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
     }
@@ -243,7 +265,7 @@ async function extractStreamsCenter(url) {
 
   return {
     m3u8Url: m3u8Url.trim(),
-    headers: { 'Referer': 'https://streams.center/' },
+    headers: { 'Referer': origin + '/' },
     refreshable: false,
   };
 }
@@ -451,20 +473,33 @@ function parseWrapperIframe(html, baseUrl) {
 }
 
 /**
- * in-stream.click style player: a plain JS array of mirrored m3u8 URLs.
- * The literal is JSON-compatible, so \u0026 decodes back to `&` — losing that
- * would corrupt the signed `st`/`e` query and the CDN would 403.
+ * Players in this family publish their m3u8 inline, as either
+ *   const streamUrls = ["https://…", …]   (in-stream.click)
+ *   const streamUrl  = "https://…"        (streame.center)
+ *
+ * Both literals are JSON-compatible, so \u0026 decodes back to `&`. Losing that
+ * corrupts the signed `st`/`e` query and the CDN answers 403.
  */
-function parseFsLiveStreamUrls(html) {
-  const match = String(html).match(/streamUrls\s*=\s*(\[[^\]]*\])/);
-  if (!match) return [];
-  try {
-    const parsed = JSON.parse(match[1]);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(u => typeof u === 'string' && u.includes('.m3u8'));
-  } catch {
-    return [];
+function parseInlineStreamUrls(html) {
+  const source = String(html);
+  const urls = [];
+
+  const arrayMatch = source.match(/streamUrls\s*=\s*(\[[^\]]*\])/);
+  if (arrayMatch) {
+    try {
+      const parsed = JSON.parse(arrayMatch[1]);
+      if (Array.isArray(parsed)) urls.push(...parsed);
+    } catch { /* fall through to the single-URL form */ }
   }
+
+  const singleMatch = source.match(/streamUrl\s*=\s*("(?:[^"\\]|\\.)*")/);
+  if (singleMatch) {
+    try {
+      urls.push(JSON.parse(singleMatch[1]));
+    } catch { /* ignore a malformed literal */ }
+  }
+
+  return urls.filter(u => typeof u === 'string' && u.includes('.m3u8'));
 }
 
 async function extractWikisport(url) {
@@ -498,7 +533,7 @@ async function extractWikisport(url) {
   const econfig = parseEconfigPlayer(playerHtml, playerUrl);
   if (econfig) return econfig;
 
-  const streamUrls = parseFsLiveStreamUrls(playerHtml);
+  const streamUrls = parseInlineStreamUrls(playerHtml);
   if (!streamUrls.length) return null;
 
   // The CDN 403s on the wrapper's Referer — it wants the player origin.
@@ -535,5 +570,5 @@ module.exports = {
   extract, isExtractable, validate, extractors, streamRank, clearCache,
   MAX_MANIFEST_BYTES,
   // exported for tests
-  parseWrapperIframe, parseFsLiveStreamUrls, parseEconfigPlayer,
+  parseWrapperIframe, parseInlineStreamUrls, parseEconfigPlayer,
 };

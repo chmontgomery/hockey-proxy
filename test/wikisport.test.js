@@ -12,7 +12,7 @@ const assert = require('node:assert/strict');
 const streamExtractor = require('../services/streamExtractor');
 const {
   parseWrapperIframe,
-  parseFsLiveStreamUrls,
+  parseInlineStreamUrls,
   parseEconfigPlayer,
 } = require('../services/streamExtractor');
 
@@ -60,16 +60,30 @@ describe('wikisport extractor', () => {
     assert.equal(parseWrapperIframe('<html><body>nope</body></html>', 'https://wikisport.info/'), null);
   });
 
-  test('parseFsLiveStreamUrls decodes the escaped streamUrls array', () => {
-    const urls = parseFsLiveStreamUrls(FSLIVE_HTML);
+  test('parseInlineStreamUrls decodes the escaped streamUrls array', () => {
+    const urls = parseInlineStreamUrls(FSLIVE_HTML);
     assert.equal(urls.length, 2);
     // & must come back as a real ampersand or the token query breaks.
     assert.equal(urls[0], 'https://instreams.pro/live/F145/index.m3u8?st=OrmoN_RHI6ms8J2UEBbv1Q&e=1789880695');
     assert.ok(urls[1].includes('instreams.live'));
   });
 
-  test('parseFsLiveStreamUrls returns empty for a page without the array', () => {
-    assert.deepEqual(parseFsLiveStreamUrls('<html>no player here</html>'), []);
+  test('parseInlineStreamUrls returns empty for a page without a stream URL', () => {
+    assert.deepEqual(parseInlineStreamUrls('<html>no player here</html>'), []);
+  });
+
+  test('parseInlineStreamUrls also reads the single streamUrl form', () => {
+    // streame.center publishes one URL rather than an array.
+    const html = 'const streamUrl = "https://edgestream4.pro/hls/zazezagdgfc98.m3u8?st=abc\\u0026e=1789884701";';
+    assert.deepEqual(parseInlineStreamUrls(html), [
+      'https://edgestream4.pro/hls/zazezagdgfc98.m3u8?st=abc&e=1789884701',
+    ]);
+  });
+
+  test('streame.center and streams.center are both extractable at tier 1', () => {
+    assert.equal(streamExtractor.isExtractable('https://streame.center/embed/ch98.php'), true);
+    assert.equal(streamExtractor.isExtractable('https://streams.center/embed/ch98.php'), true);
+    assert.equal(streamExtractor.streamRank('https://streame.center/embed/ch98.php'), 1);
   });
 
   test('parseEconfigPlayer returns null when the page has no _econfig', () => {
