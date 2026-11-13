@@ -2,7 +2,7 @@
 
 /**
  * Unit tests for the single-fetch extractors whose playlist URL sits inline in
- * the page (wideiptv via the lovetier config format, xstream, newvideo, vcdn).
+ * the page (wideiptv via the lovetier config format, xstream, newvideo, vcdn, tvp4).
  *
  * Pure functions over captured HTML, so these run offline. Fixtures are
  * trimmed copies of real pages captured 2026-11-12.
@@ -11,7 +11,7 @@
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
 const streamExtractor = require('../services/streamExtractor');
-const { parseConfigStreamUrl, parseInlineStreamUrls, parseKinescopeHlsSrc, parseXorStreamUrl } = streamExtractor;
+const { parseConfigStreamUrl, parseInlineStreamUrls, parseKinescopeHlsSrc, parseXorStreamUrl, parseP2pPlayerStream } = streamExtractor;
 
 // Trimmed from https://wideiptv.top/player/SportsnetOntario
 const WIDEIPTV_HTML = `
@@ -47,6 +47,12 @@ const VCDN_HTML = `
     var _k = "cbe88ea4";
     var streamUrl = xorDecrypt(_c, _k);
 })();</script>
+`;
+
+// Trimmed from https://tvp4.online/269855
+const TVP4_HTML = `
+<script>window.__p2pPlayer = {"stream":"//a75.azplay55.me/hls/streama269855/index.m3u8?cst=7e629cd4e9a95022","tracker":"wss://track-tvope.xyz/wttracker","configUrl":"https://track-tvope.xyz/api/config"};</script>
+<script type="module" src="/p2p/player.js?10"></script>
 `;
 
 describe('inline-playlist extractors', () => {
@@ -101,5 +107,23 @@ describe('inline-playlist extractors', () => {
     assert.equal(parseXorStreamUrl('<html>nothing</html>'), null);
     // Decodes to garbage rather than an https playlist URL.
     assert.equal(parseXorStreamUrl('var _c = "00112233"; var _k = "ff";'), null);
+  });
+
+  test('tvp4.online is extractable at tier 0', () => {
+    assert.equal(streamExtractor.isExtractable('https://tvp4.online/269855'), true);
+    assert.equal(streamExtractor.streamRank('https://tvp4.online/269855'), 0);
+  });
+
+  test('parseP2pPlayerStream resolves the protocol-relative stream against the page', () => {
+    assert.equal(
+      parseP2pPlayerStream(TVP4_HTML, 'https://tvp4.online/269855'),
+      'https://a75.azplay55.me/hls/streama269855/index.m3u8?cst=7e629cd4e9a95022'
+    );
+  });
+
+  test('parseP2pPlayerStream returns null without a usable stream', () => {
+    assert.equal(parseP2pPlayerStream('<html>nothing</html>', 'https://tvp4.online/1'), null);
+    assert.equal(parseP2pPlayerStream('<script>window.__p2pPlayer = {"tracker":"wss://x"};</script>', 'https://tvp4.online/1'), null);
+    assert.equal(parseP2pPlayerStream('<script>window.__p2pPlayer = {oops};</script>', 'https://tvp4.online/1'), null);
   });
 });

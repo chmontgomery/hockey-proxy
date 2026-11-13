@@ -37,6 +37,7 @@ const extractors = [
   { name: 'xstream', test: isXstream, extract: extractXstream },
   { name: 'newvideo', test: isNewVideo, extract: extractNewVideo },
   { name: 'vcdn', test: isVcdn, extract: extractVcdn },
+  { name: 'tvp4', test: isTvp4, extract: extractTvp4 },
   { name: 'castlink', test: isCastlink, extract: extractCastlink },
   { name: 'streamscenter', test: isStreamsCenter, extract: extractStreamsCenter },
   { name: 'embedhd', test: isEmbedHd, extract: extractEmbedHd },
@@ -222,6 +223,47 @@ async function extractVcdn(url) {
   });
 
   const m3u8Url = parseXorStreamUrl(html);
+  if (!m3u8Url) return null;
+
+  return {
+    m3u8Url,
+    headers: { 'Referer': new URL(url).origin + '/' },
+    refreshable: true,
+    refreshInfo: { sourceUrl: url },
+  };
+}
+
+// --- tvp4 (tvp4.online) ---
+//
+// One fetch: the page hands its p2p player a `window.__p2pPlayer = {...}` JSON
+// blob whose `stream` is a protocol-relative playlist URL on a randomly
+// assigned edge host. A stream that is restarting upstream serves a frozen or
+// empty playlist for a while; that is the source, not the extraction.
+
+function isTvp4(url) {
+  return url.includes('tvp4.online');
+}
+
+function parseP2pPlayerStream(html, pageUrl) {
+  const match = String(html).match(/window\.__p2pPlayer\s*=\s*(\{.*?\})\s*;?\s*<\/script>/s);
+  if (!match) return null;
+
+  try {
+    const { stream } = JSON.parse(match[1]);
+    if (typeof stream !== 'string' || !stream.includes('.m3u8')) return null;
+    return new URL(stream, pageUrl).href;
+  } catch {
+    return null;
+  }
+}
+
+async function extractTvp4(url) {
+  const { data: html } = await safeGet(url, {
+    timeout: 10000,
+    headers: { 'User-Agent': BROWSER_UA, 'Referer': 'https://onhockey.tv/' },
+  });
+
+  const m3u8Url = parseP2pPlayerStream(html, url);
   if (!m3u8Url) return null;
 
   return {
@@ -718,6 +760,7 @@ function streamRank(url) {
   if (isXstream(url))     return 0;
   if (isNewVideo(url))    return 0;
   if (isVcdn(url))        return 0;
+  if (isTvp4(url))        return 0;
   if (isCastlink(url))    return 0;
   if (isStreamsCenter(url)) return 1;
   if (isEmbedHd(url))     return 1;
@@ -736,5 +779,5 @@ module.exports = {
   // exported for tests
   parseWrapperIframe, parseInlineStreamUrls, parseEconfigPlayer,
   parsePpConfigPlayer, parseCastlinkPlayer,
-  parseConfigStreamUrl, parseKinescopeHlsSrc, parseXorStreamUrl,
+  parseConfigStreamUrl, parseKinescopeHlsSrc, parseXorStreamUrl, parseP2pPlayerStream,
 };
