@@ -43,6 +43,7 @@ const extractors = [
   { name: 'embedhd', test: isEmbedHd, extract: extractEmbedHd },
   { name: 'topembed', test: isTopembed, extract: extractTopembed },
   { name: 'wikisport', test: isWikisport, extract: extractWikisport },
+  { name: 'hlsst', test: isHlsSt, extract: extractHlsSt },
 ];
 
 /**
@@ -753,6 +754,55 @@ async function extractWikisport(url) {
  * 1 — Multi-hop server API extraction
  * 2 — Non-extractable (iframe with ads)
  */
+// --- hlsst (hls.st) ---
+//
+// The page never fetches a playlist over HTTP: it subscribes to a WebSocket
+// (`WS_BASE`) with its `TOKEN` and feeds the pushed playlist to a service
+// worker. So there is no m3u8 URL to hand back — the result carries a
+// `playlistSource` instead, and the proxy serves the playlist from
+// services/wsPlaylist.js via /proxy/live-playlist. Segments are ordinary
+// HTTP URLs (TS data behind a 70-byte PNG header).
+
+function isHlsSt(url) {
+  return /\/\/hls\.st\//.test(url);
+}
+
+function parseWsPlayer(html) {
+  const source = String(html);
+  const token = source.match(/var\s+TOKEN\s*=\s*"([0-9a-f]{16,64})"/i);
+  const wsBase = source.match(/var\s+WS_BASE\s*=\s*("(?:[^"\\]|\\.)*")/);
+  if (!token || !wsBase) return null;
+
+  let wsUrl;
+  try {
+    wsUrl = JSON.parse(wsBase[1]);
+  } catch {
+    return null;
+  }
+  if (!/^wss?:\/\//.test(wsUrl)) return null;
+
+  return { wsUrl, id: token[1] };
+}
+
+async function extractHlsSt(url) {
+  const { data: html } = await safeGet(url, {
+    timeout: 10000,
+    headers: { 'User-Agent': BROWSER_UA, 'Referer': 'https://onhockey.tv/' },
+  });
+
+  const player = parseWsPlayer(html);
+  if (!player) return null;
+
+  return {
+    // Not fetchable — a label for logs. Consumers must check `playlistSource`.
+    m3u8Url: `${player.wsUrl}#${player.id}`,
+    playlistSource: { type: 'ws', ...player, origin: new URL(url).origin, ref: 'https://onhockey.tv/' },
+    headers: {},
+    refreshable: true,
+    refreshInfo: { sourceUrl: url },
+  };
+}
+
 function streamRank(url) {
   if (!url) return 2;
   if (isDirectM3u8(url))  return 0;
@@ -766,6 +816,7 @@ function streamRank(url) {
   if (isEmbedHd(url))     return 1;
   if (isTopembed(url))    return 1;
   if (isWikisport(url))   return 1;
+  if (isHlsSt(url))       return 1;
   return 2;
 }
 
@@ -779,5 +830,5 @@ module.exports = {
   // exported for tests
   parseWrapperIframe, parseInlineStreamUrls, parseEconfigPlayer,
   parsePpConfigPlayer, parseCastlinkPlayer,
-  parseConfigStreamUrl, parseKinescopeHlsSrc, parseXorStreamUrl, parseP2pPlayerStream,
+  parseConfigStreamUrl, parseKinescopeHlsSrc, parseXorStreamUrl, parseP2pPlayerStream, parseWsPlayer,
 };

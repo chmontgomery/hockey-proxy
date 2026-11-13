@@ -7,6 +7,7 @@ const { BROWSER_UA } = require('../services/constants');
 const { isAllowedProxyUrl, assertAllowedProxyUrl } = require('../services/urlGuard');
 const { safeAxios } = require('../services/safeHttp');
 const viewerTracker = require('../services/viewerTracker');
+const wsPlaylist = require('../services/wsPlaylist');
 
 // Read at module load — env changes after startup shouldn't affect per-request auth.
 const PROXY_TOKEN = process.env.PROXY_TOKEN || null;
@@ -187,6 +188,35 @@ router.get('/segment', async (req, res) => {
 });
 
 /**
+ * Live playlist for sources with no fetchable m3u8 (see services/wsPlaylist.js).
+ * Takes the source page URL rather than a socket URL so the socket target always
+ * comes from our own extraction, never from the query string.
+ * GET /proxy/live-playlist?src=<source-page-url>
+ */
+router.get('/live-playlist', async (req, res) => {
+  const sourceUrl = req.query.src;
+  if (!sourceUrl) return res.status(400).send('Missing src parameter');
+  viewerTracker.touch(req.ip);
+
+  try {
+    const result = await streamExtractor.extract(sourceUrl);
+    if (!result || !result.playlistSource) return res.status(404).send('No live playlist for this source');
+
+    const text = await wsPlaylist.getPlaylist(result.playlistSource);
+    const manifest = rewriteManifest(text, '', result.headers?.Referer || '', '', { token: PROXY_TOKEN || '' });
+
+    res.set('Content-Type', 'application/vnd.apple.mpegurl');
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Cache-Control', 'no-store');
+    res.send(manifest);
+  } catch (err) {
+    if (err.code === 'URL_NOT_ALLOWED') return res.status(403).send('URL not allowed');
+    console.error(`[proxy/live-playlist] FAILED: ${err.message} | ${shortUrl(sourceUrl)}`);
+    res.status(502).send('Failed to fetch live playlist');
+  }
+});
+
+/**
  * Extract + play: given a source page URL, extract the m3u8 and render the HLS player.
  * GET /proxy/play?url=<source-page-url>
  */
@@ -204,8 +234,7 @@ router.get('/play', async (req, res) => {
       });
     }
 
-    const referer = result.headers?.Referer || '';
-    const proxiedUrl = buildHlsProxyUrl(result.m3u8Url, referer, '', PROXY_TOKEN || '');
+    const proxiedUrl = buildPlaylistUrl(result, sourceUrl);
 
     let refreshUrl = `/proxy/refresh?url=${encodeURIComponent(sourceUrl)}`;
     if (PROXY_TOKEN) refreshUrl += `&token=${encodeURIComponent(PROXY_TOKEN)}`;
@@ -236,8 +265,7 @@ router.get('/refresh', async (req, res) => {
       return res.status(404).json({ error: 'Could not extract stream' });
     }
 
-    const referer = result.headers?.Referer || '';
-    const hlsUrl = buildHlsProxyUrl(result.m3u8Url, referer, '', PROXY_TOKEN || '');
+    const hlsUrl = buildPlaylistUrl(result, sourceUrl);
 
     res.json({ hlsUrl });
   } catch (err) {
@@ -260,6 +288,10 @@ router.get('/play-cast', async (req, res) => {
     const result = await streamExtractor.extract(sourceUrl);
     if (!result || !result.m3u8Url) {
       return res.status(404).json({ error: 'Could not extract stream from this source' });
+    }
+    if (result.playlistSource) {
+      // Cast sessions re-fetch an upstream m3u8 URL; a socket-fed playlist has none.
+      return res.status(501).json({ error: 'Cast is not supported for this source' });
     }
 
     const sessionId = createCastSession(sourceUrl, base);
@@ -400,6 +432,19 @@ async function handleCastStream(req, res) {
 
 router.get('/cast-stream/:sessionId', handleCastStream);
 router.get('/cast-stream/:sessionId/*subPath', handleCastStream);
+
+/**
+ * The URL the browser player should load for an extraction result: the manifest
+ * proxy for an ordinary m3u8, or /proxy/live-playlist for a socket-fed one.
+ */
+function buildPlaylistUrl(result, sourceUrl) {
+  if (result.playlistSource) {
+    let url = `/proxy/live-playlist?src=${encodeURIComponent(sourceUrl)}`;
+    if (PROXY_TOKEN) url += `&token=${encodeURIComponent(PROXY_TOKEN)}`;
+    return url;
+  }
+  return buildHlsProxyUrl(result.m3u8Url, result.headers?.Referer || '', '', PROXY_TOKEN || '');
+}
 
 /**
  * Build a /proxy/hls URL that routes an m3u8 through our manifest proxy.
