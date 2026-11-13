@@ -38,6 +38,7 @@ const extractors = [
   { name: 'newvideo', test: isNewVideo, extract: extractNewVideo },
   { name: 'vcdn', test: isVcdn, extract: extractVcdn },
   { name: 'tvp4', test: isTvp4, extract: extractTvp4 },
+  { name: 'streamfree', test: isStreamfree, extract: extractStreamfree },
   { name: 'castlink', test: isCastlink, extract: extractCastlink },
   { name: 'streamscenter', test: isStreamsCenter, extract: extractStreamsCenter },
   { name: 'embedhd', test: isEmbedHd, extract: extractEmbedHd },
@@ -269,6 +270,90 @@ async function extractTvp4(url) {
 
   return {
     m3u8Url,
+    headers: { 'Referer': new URL(url).origin + '/' },
+    refreshable: true,
+    refreshInfo: { sourceUrl: url },
+  };
+}
+
+// --- streamfree (streamfree.top, strmfree.st, strmfree.pk) ---
+//
+// Two fetches, mirroring the page's own getStreamSource(): the page carries a
+// per-quality token dict (`_0x`) and its variant name; `/get-stream-key/<slug>`
+// says which delivery path is in use. The playlist lives on the page's own
+// origin. A stream that has not gone live yet (`IS_LIVE = false`) has no
+// playlist — its URL answers 403/404 — so that case returns null.
+
+const STREAMFREE_DOMAINS = ['streamfree.top', 'strmfree.st', 'strmfree.pk', 'streamfree.app'];
+
+function isStreamfree(url) {
+  return STREAMFREE_DOMAINS.some(d => url.includes(d));
+}
+
+function parseStreamfreePage(html) {
+  const source = String(html);
+  if (/const\s+IS_LIVE\s*=\s*false/.test(source)) return null;
+
+  const dict = source.match(/const\s+_0x\s*=\s*(\{.*?\});/s);
+  const quality = source.match(/const\s+QUALITY\s*=\s*'([^']+)'/);
+  const suffix = source.match(/const\s+SOURCE_SUFFIX\s*=\s*'([^']*)'/);
+  const slug = source.match(/\/get-stream-key\/([\w-]+)/);
+  if (!dict || !quality || !slug) return null;
+
+  let tokens;
+  try {
+    tokens = JSON.parse(dict[1]);
+  } catch {
+    return null;
+  }
+
+  return {
+    slug: slug[1],
+    variant: slug[1] + quality[1] + (suffix ? suffix[1] : ''),
+    token: tokens[quality[1]] || null,
+  };
+}
+
+function buildStreamfreeUrl(pageUrl, page, keyData) {
+  if (keyData && keyData.is_external && keyData.external_url) return keyData.external_url;
+
+  const serverName = (keyData && keyData.server_name) || 'origin';
+  const dir = serverName === 'externalcdn' ? 'live-externalcdn'
+    : serverName !== 'origin' ? 'live-cdn'
+    : 'live';
+
+  const url = new URL(`/${dir}/${page.variant}/index.m3u8`, pageUrl);
+  if (page.token) {
+    url.searchParams.set('_t', page.token._t);
+    url.searchParams.set('_e', page.token._e);
+    url.searchParams.set('_n', page.token._n);
+  }
+  return url.href;
+}
+
+async function extractStreamfree(url) {
+  const { data: html } = await safeGet(url, {
+    timeout: 10000,
+    headers: { 'User-Agent': BROWSER_UA, 'Referer': 'https://onhockey.tv/' },
+  });
+
+  const page = parseStreamfreePage(html);
+  if (!page) return null;
+
+  let keyData = null;
+  try {
+    const resp = await safeGet(new URL(`/get-stream-key/${page.slug}`, url).href, {
+      timeout: 10000,
+      headers: { 'User-Agent': BROWSER_UA, 'Referer': url },
+    });
+    keyData = resp.data;
+  } catch (err) {
+    // The page itself falls back to the origin path when this call fails.
+    console.error(`[extractor:streamfree] get-stream-key failed for ${url}:`, err.message);
+  }
+
+  return {
+    m3u8Url: buildStreamfreeUrl(url, page, keyData),
     headers: { 'Referer': new URL(url).origin + '/' },
     refreshable: true,
     refreshInfo: { sourceUrl: url },
@@ -811,6 +896,7 @@ function streamRank(url) {
   if (isNewVideo(url))    return 0;
   if (isVcdn(url))        return 0;
   if (isTvp4(url))        return 0;
+  if (isStreamfree(url))  return 0;
   if (isCastlink(url))    return 0;
   if (isStreamsCenter(url)) return 1;
   if (isEmbedHd(url))     return 1;
@@ -831,4 +917,5 @@ module.exports = {
   parseWrapperIframe, parseInlineStreamUrls, parseEconfigPlayer,
   parsePpConfigPlayer, parseCastlinkPlayer,
   parseConfigStreamUrl, parseKinescopeHlsSrc, parseXorStreamUrl, parseP2pPlayerStream, parseWsPlayer,
+  parseStreamfreePage, buildStreamfreeUrl,
 };
