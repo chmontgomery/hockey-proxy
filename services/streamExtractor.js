@@ -35,6 +35,8 @@ const extractors = [
   { name: 'direct-m3u8', test: isDirectM3u8, extract: extractDirectM3u8 },
   { name: 'lovetier', test: isLovetier, extract: extractLovetier },
   { name: 'xstream', test: isXstream, extract: extractXstream },
+  { name: 'newvideo', test: isNewVideo, extract: extractNewVideo },
+  { name: 'vcdn', test: isVcdn, extract: extractVcdn },
   { name: 'castlink', test: isCastlink, extract: extractCastlink },
   { name: 'streamscenter', test: isStreamsCenter, extract: extractStreamsCenter },
   { name: 'embedhd', test: isEmbedHd, extract: extractEmbedHd },
@@ -142,6 +144,88 @@ async function extractXstream(url) {
 
   return {
     m3u8Url: urls[0],
+    headers: { 'Referer': new URL(url).origin + '/' },
+    refreshable: true,
+    refreshInfo: { sourceUrl: url },
+  };
+}
+
+// --- newvideo (embed.new.video) ---
+//
+// One fetch: a Kinescope-hosted player whose `playerOptions` JSON names the
+// master playlist. The playlist needs no referer or token.
+
+function isNewVideo(url) {
+  return url.includes('embed.new.video');
+}
+
+function parseKinescopeHlsSrc(html) {
+  const match = String(html).match(/"hls"\s*:\s*\{[^<]*?"src"\s*:\s*("(?:[^"\\]|\\.)*")/);
+  if (!match) return null;
+
+  try {
+    const src = JSON.parse(match[1]);
+    return typeof src === 'string' && src.includes('.m3u8') ? src : null;
+  } catch {
+    return null;
+  }
+}
+
+async function extractNewVideo(url) {
+  const { data: html } = await safeGet(url, {
+    timeout: 10000,
+    headers: { 'User-Agent': BROWSER_UA, 'Referer': 'https://onhockey.tv/' },
+  });
+
+  const m3u8Url = parseKinescopeHlsSrc(html);
+  if (!m3u8Url) return null;
+
+  return {
+    m3u8Url,
+    headers: { 'Referer': new URL(url).origin + '/' },
+    refreshable: true,
+    refreshInfo: { sourceUrl: url },
+  };
+}
+
+// --- vcdn (vcdn-NNNN.website) ---
+//
+// One fetch: the playlist URL is XOR-obfuscated inline as two hex strings,
+// `_c` (ciphertext) and `_k` (repeating key). The decoded URL embeds the
+// requester's IP and an expiry, and 302s to the real edge host. The numeric
+// part of the hostname rotates, hence the pattern match.
+
+const VCDN_HOST_RE = /\/\/vcdn-\d+\.website\//;
+
+function isVcdn(url) {
+  return VCDN_HOST_RE.test(url);
+}
+
+function parseXorStreamUrl(html) {
+  const source = String(html);
+  const cipher = source.match(/\b_c\s*=\s*"([0-9a-f]+)"/i);
+  const key = source.match(/\b_k\s*=\s*"([0-9a-f]+)"/i);
+  if (!cipher || !key || !key[1].length) return null;
+
+  const c = Buffer.from(cipher[1], 'hex');
+  const k = Buffer.from(key[1], 'hex');
+  if (!k.length) return null;
+
+  const decoded = Buffer.from(c.map((byte, i) => byte ^ k[i % k.length])).toString('latin1');
+  return decoded.startsWith('https://') && decoded.includes('.m3u8') ? decoded : null;
+}
+
+async function extractVcdn(url) {
+  const { data: html } = await safeGet(url, {
+    timeout: 10000,
+    headers: { 'User-Agent': BROWSER_UA, 'Referer': 'https://onhockey.tv/' },
+  });
+
+  const m3u8Url = parseXorStreamUrl(html);
+  if (!m3u8Url) return null;
+
+  return {
+    m3u8Url,
     headers: { 'Referer': new URL(url).origin + '/' },
     refreshable: true,
     refreshInfo: { sourceUrl: url },
@@ -632,6 +716,8 @@ function streamRank(url) {
   if (isDirectM3u8(url))  return 0;
   if (isLovetier(url))    return 0;
   if (isXstream(url))     return 0;
+  if (isNewVideo(url))    return 0;
+  if (isVcdn(url))        return 0;
   if (isCastlink(url))    return 0;
   if (isStreamsCenter(url)) return 1;
   if (isEmbedHd(url))     return 1;
@@ -650,5 +736,5 @@ module.exports = {
   // exported for tests
   parseWrapperIframe, parseInlineStreamUrls, parseEconfigPlayer,
   parsePpConfigPlayer, parseCastlinkPlayer,
-  parseConfigStreamUrl,
+  parseConfigStreamUrl, parseKinescopeHlsSrc, parseXorStreamUrl,
 };
