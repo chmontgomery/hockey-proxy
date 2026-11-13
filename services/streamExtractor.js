@@ -34,6 +34,7 @@ async function safePost(url, body, options = {}) {
 const extractors = [
   { name: 'direct-m3u8', test: isDirectM3u8, extract: extractDirectM3u8 },
   { name: 'lovetier', test: isLovetier, extract: extractLovetier },
+  { name: 'xstream', test: isXstream, extract: extractXstream },
   { name: 'castlink', test: isCastlink, extract: extractCastlink },
   { name: 'streamscenter', test: isStreamsCenter, extract: extractStreamsCenter },
   { name: 'embedhd', test: isEmbedHd, extract: extractEmbedHd },
@@ -83,10 +84,26 @@ async function extractDirectM3u8(url) {
   return { m3u8Url: url, headers: {}, refreshable: false };
 }
 
-// --- lovetier.bz ---
+// --- lovetier (lovetier.bz, wideiptv.top) ---
+//
+// One fetch: the page bootstraps its player from `const config = { streamUrl }`.
+// wideiptv.top tokens last 5 minutes (`tokenExpiresIn: 300`), after which the
+// player's refresh hook re-extracts.
+
+const LOVETIER_DOMAINS = ['lovetier.bz', 'wideiptv.top'];
 
 function isLovetier(url) {
-  return url.includes('lovetier.bz');
+  return LOVETIER_DOMAINS.some(d => url.includes(d));
+}
+
+function parseConfigStreamUrl(html) {
+  const configMatch = String(html).match(/const\s+config\s*=\s*\{([^}]+)\}/s);
+  if (!configMatch) return null;
+
+  const streamUrlMatch = configMatch[1].match(/streamUrl\s*:\s*"([^"]+)"/);
+  if (!streamUrlMatch) return null;
+
+  return streamUrlMatch[1].replace(/\\\//g, '/');
 }
 
 async function extractLovetier(url) {
@@ -95,17 +112,37 @@ async function extractLovetier(url) {
     headers: { 'User-Agent': BROWSER_UA, 'Referer': 'https://onhockey.tv/' },
   });
 
-  const configMatch = html.match(/const\s+config\s*=\s*\{([^}]+)\}/s);
-  if (!configMatch) return null;
-
-  const streamUrlMatch = configMatch[1].match(/streamUrl\s*:\s*"([^"]+)"/);
-  if (!streamUrlMatch) return null;
-
-  const m3u8Url = streamUrlMatch[1].replace(/\\\//g, '/');
+  const m3u8Url = parseConfigStreamUrl(html);
+  if (!m3u8Url) return null;
 
   return {
     m3u8Url,
-    headers: { 'Referer': 'https://lovetier.bz/' },
+    headers: { 'Referer': new URL(url).origin + '/' },
+    refreshable: true,
+    refreshInfo: { sourceUrl: url },
+  };
+}
+
+// --- xstream (xstream.st) ---
+//
+// One fetch: `hls2.php?stream=ID` carries `streamUrls = [...]` inline.
+
+function isXstream(url) {
+  return url.includes('xstream.st');
+}
+
+async function extractXstream(url) {
+  const { data: html } = await safeGet(url, {
+    timeout: 10000,
+    headers: { 'User-Agent': BROWSER_UA, 'Referer': 'https://onhockey.tv/' },
+  });
+
+  const urls = parseInlineStreamUrls(html);
+  if (!urls.length) return null;
+
+  return {
+    m3u8Url: urls[0],
+    headers: { 'Referer': new URL(url).origin + '/' },
     refreshable: true,
     refreshInfo: { sourceUrl: url },
   };
@@ -594,6 +631,7 @@ function streamRank(url) {
   if (!url) return 2;
   if (isDirectM3u8(url))  return 0;
   if (isLovetier(url))    return 0;
+  if (isXstream(url))     return 0;
   if (isCastlink(url))    return 0;
   if (isStreamsCenter(url)) return 1;
   if (isEmbedHd(url))     return 1;
@@ -612,4 +650,5 @@ module.exports = {
   // exported for tests
   parseWrapperIframe, parseInlineStreamUrls, parseEconfigPlayer,
   parsePpConfigPlayer, parseCastlinkPlayer,
+  parseConfigStreamUrl,
 };
