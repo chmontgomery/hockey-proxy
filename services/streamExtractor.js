@@ -111,7 +111,12 @@ async function extractLovetier(url) {
   };
 }
 
-// --- castlink (vuen.link, gopst.link, dabac.link, zenoz.link) ---
+// --- castlink (vuen.link, gopst.link, dabac.link, zenoz.link, kora.st, vertex.st, nexa.st) ---
+//
+// The outer `/api/player.php?id=N` call is common to every mirror, but the
+// inner player it points at comes in two formats (`_econfig` and
+// `PP_*_CONFIG`) on rotating hosts — so the inner page is parsed by
+// signature, never by hostname.
 
 function isCastlink(url) {
   return CASTLINK_DOMAINS.some(d => url.includes(d));
@@ -137,10 +142,10 @@ async function extractCastlink(url) {
   }
   if (!playerUrl) return null;
 
-  return extractCastlinkPlayer(playerUrl, origin);
+  return extractCastlinkPlayer(playerUrl, origin, url);
 }
 
-async function extractCastlinkPlayer(playerUrl, refererOrigin) {
+async function extractCastlinkPlayer(playerUrl, refererOrigin, sourceUrl) {
   let html;
   try {
     const resp = await safeGet(playerUrl, {
@@ -153,7 +158,42 @@ async function extractCastlinkPlayer(playerUrl, refererOrigin) {
     return null;
   }
 
-  return parseEconfigPlayer(html, playerUrl);
+  const result = parseCastlinkPlayer(html, playerUrl);
+  // Playlist URLs are signed and short-lived (~30 min for the PP_*_CONFIG format).
+  if (result) Object.assign(result, { refreshable: true, refreshInfo: { sourceUrl } });
+  return result;
+}
+
+function parseCastlinkPlayer(html, playerUrl) {
+  return parseEconfigPlayer(html, playerUrl) || parsePpConfigPlayer(html, playerUrl);
+}
+
+/**
+ * Read the playlist URL out of an inline `window.PP_<player>_CONFIG = {...}`
+ * JSON blob (matchli.st, reached via vertex.st / nexa.st). The page picks a
+ * player skin per referring site — PP_CLAPPR_CONFIG for vertex.st,
+ * PP_STABLE_CONFIG for nexa.st — but the payload is the same. The playlist
+ * host rejects requests that don't carry the player origin as referer.
+ */
+function parsePpConfigPlayer(html, playerUrl) {
+  const match = String(html).match(/window\.PP_[A-Z0-9_]+_CONFIG\s*=\s*(\{.*?\})\s*;?\s*<\/script>/s);
+  if (!match) return null;
+
+  let config;
+  try {
+    config = JSON.parse(match[1]);
+  } catch {
+    return null;
+  }
+
+  const m3u8Url = config.srcBase || config.src;
+  if (typeof m3u8Url !== 'string' || !/^https?:\/\//.test(m3u8Url)) return null;
+
+  return {
+    m3u8Url,
+    headers: { 'Referer': new URL(playerUrl).origin + '/' },
+    refreshable: false,
+  };
 }
 
 /**
@@ -571,4 +611,5 @@ module.exports = {
   MAX_MANIFEST_BYTES,
   // exported for tests
   parseWrapperIframe, parseInlineStreamUrls, parseEconfigPlayer,
+  parsePpConfigPlayer, parseCastlinkPlayer,
 };
